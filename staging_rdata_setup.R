@@ -23,7 +23,7 @@ library(parallel)
 library(flyio)
 
 ## 2 is SLF, 3 is SOD EU1, 5 is SOD NA1
-case_study_id = "5"
+case_study_id = "3"
 case_study_id <- as.numeric(case_study_id)
 json_case_study <- httr::GET(paste("https://pops-model.org/api/case_study/", case_study_id ,"/?format=json", sep = ""))
 
@@ -396,7 +396,10 @@ data <- PoPS::pops_model(random_seed = random_seed,
                          anthropogenic_dir = anthropogenic_dir, anthropogenic_kappa = anthropogenic_kappa)
 
 
+weather_coefficient <- weather_coefficient[1:156]
+
 rm(data)
+rm(i)
 rm(random_seed)
 rm(reproductive_rate)
 rm(natural_distance_scale)

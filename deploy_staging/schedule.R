@@ -1,5 +1,5 @@
 # devtools::install_github("ncsu-landscape-dynamics/rpops", ref="feature/spread_rate", force = TRUE)
-Sys.setenv("GCS_AUTH_FILE" = "deploy_staging/auth6.json")
+Sys.setenv("GCS_AUTH_FILE" = "deploy_staging/auth2.json")
 library(googleAuthR)         ## authentication
 library(googleCloudStorageR)  ## google cloud storage
 library(readr)                ##
@@ -42,10 +42,10 @@ modelapi <- function(case_study_id, session_id, run_collection_id, run_id) {
   run_collection <- httr::content(json_run_collection)
   json_session <- httr::GET(paste("https://pops-model.org/api/session/", session_id, "/?format=json", sep = ""))
   session <- httr::content(json_session)
-  json_case_study<- httr::GET(paste("https://pops-model.org/api/case_study/", case_study_id, "/?format=json", sep = ""))
-  case_study <- httr::content(json_case_study)
-  # googleCloudStorageR::gcs_load(file = paste("casestudy", case_study_id, ".Rdata", sep = ""), bucket = "test_pops_staging")
-  googleCloudStorageR::gcs_load(file = paste("casestudy", case_study_id, ".Rdata", sep = ""), bucket = "pops_data_test")
+  # json_case_study<- httr::GET(paste("https://pops-model.org/api/case_study/", case_study_id, "/?format=json", sep = ""))
+  # case_study <- httr::content(json_case_study)
+  googleCloudStorageR::gcs_load(file = paste("casestudy", case_study_id, ".Rdata", sep = ""), bucket = "test_pops_staging")
+  # googleCloudStorageR::gcs_load(file = paste("casestudy", case_study_id, ".Rdata", sep = ""), bucket = "pops_data_test")
   end_time <- session$final_year
   natural_distance_scale <- as.numeric(session$distance_scale)
   reproductive_rate <- as.numeric(session$reproductive_rate)
@@ -191,8 +191,6 @@ modelapi <- function(case_study_id, session_id, run_collection_id, run_id) {
   }
   
   stopCluster(cl)
-  run$logging <- "full loop"
-  httr::PUT(url = paste("https://pops-model.org/api/run/", run_id, "/", sep = ""), body = run, encode = "json")
   single_runs <- infected_stack[seq(1,length(infected_stack),6)]
   probability_runs <- infected_stack[seq(2,length(infected_stack),6)]
   number_infected_runs <- infected_stack[seq(3,length(infected_stack),6)]
