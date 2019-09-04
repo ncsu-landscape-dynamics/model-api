@@ -1,5 +1,5 @@
 # devtools::install_github("ncsu-landscape-dynamics/rpops", ref="feature/spread_rate", force = TRUE)
-Sys.setenv("GCS_AUTH_FILE" = "deploy_staging/auth2.json")
+# Sys.setenv("GCS_AUTH_FILE" = "deploy_staging/auth2.json")
 library(googleAuthR)         ## authentication
 library(googleCloudStorageR)  ## google cloud storage
 library(readr)                ##
@@ -138,8 +138,6 @@ modelapi <- function(case_study_id, session_id, run_collection_id, run_id) {
 
   infected_stack <- foreach::foreach(i = 1:10, .combine = c, .packages = c("raster", "PoPS"), .export = ls(globalenv())) %dopar% {
     random_seed <- round(stats::runif(1, 1, 1000000))
-    run$logging <- "random"
-    httr::PUT(url = paste("https://pops-model.org/api/run/", run_id, "/", sep = ""), body = run, encode = "json")
     data <- PoPS::pops_model(random_seed = random_seed, 
                              use_lethal_temperature = use_lethal_temperature, 
                              lethal_temperature = lethal_temperature, lethal_temperature_month = lethal_temperature_month,
@@ -165,22 +163,14 @@ modelapi <- function(case_study_id, session_id, run_collection_id, run_id) {
                              natural_distance_scale = natural_distance_scale, anthropogenic_distance_scale = anthropogenic_distance_scale, 
                              natural_dir = natural_dir, natural_kappa = natural_kappa,
                              anthropogenic_dir = anthropogenic_dir, anthropogenic_kappa = anthropogenic_kappa)
-    run$logging <- "data"
-    httr::PUT(url = paste("https://pops-model.org/api/run/", run_id, "/", sep = ""), body = run, encode = "json")
     comp_years <- raster::stack(lapply(1:length(data$infected_before_treatment), function(i) host))
-    run$logging <- "comp years"
-    httr::PUT(url = paste("https://pops-model.org/api/run/", run_id, "/", sep = ""), body = run, encode = "json")
     susceptible_runs <- raster::stack(lapply(1:length(data$infected_before_treatment), function(i) host))
     for (q in 1:raster::nlayers(comp_years)) {
       comp_years[[q]] <- data$infected[[q]]
       susceptible_runs[[q]] <- susceptible_start - data$susceptible[[q]]
     }
-    run$logging <- "loop"
-    httr::PUT(url = paste("https://pops-model.org/api/run/", run_id, "/", sep = ""), body = run, encode = "json")
     number_infected <- data$number_infected
     spread_rate <- data$rates
-    run$logging <- "rates"
-    httr::PUT(url = paste("https://pops-model.org/api/run/", run_id, "/", sep = ""), body = run, encode = "json")
     infected_area <- data$area_infected
     single_run <- comp_years
     comp_years <- raster::reclassify(comp_years, rclmat)
@@ -211,15 +201,11 @@ modelapi <- function(case_study_id, session_id, run_collection_id, run_id) {
     prediction <- prediction + probability_runs[[i]]
     infected_number[i,] <- number_infected_runs[[i]]
     infected_area[i,] <- area_infected_runs[[i]]
-    run$logging <- "Working before do call"
-    httr::PUT(url = paste("https://pops-model.org/api/run/", run_id, "/", sep = ""), body = run, encode = "json")
     rates <- do.call(rbind, spread_rate_runs[[i]])
     west_rates[i,] <- rates[,4]
     east_rates[i,] <- rates[,3]
     south_rates[i,] <- rates[,2]
     north_rates[i,] <- rates[,1]
-    run$logging <- "Working after do call"
-    httr::PUT(url = paste("https://pops-model.org/api/run/", run_id, "/", sep = ""), body = run, encode = "json")
   }
   
   probability <- (prediction/(length(probability_runs))) * 100
@@ -345,15 +331,6 @@ modelapi <- function(case_study_id, session_id, run_collection_id, run_id) {
     httr::PUT(url = paste("https://pops-model.org/api/run/", run_id, "/", sep = ""), body = run, encode = "json")
   }
   
-  # if (run_collection$default == TRUE || run$steering_year == end_time) {
-  #   if (run$status == "SUCCESS") {
-  #     run_collection$status <- "SUCCESS"
-  #     httr::PUT(url = paste("https://pops-model.org/api/run_collection/", run_collection_id, "/", sep = ""), body = run_collection, encode = "json")
-  #   } else {
-  #     run_collection$status <- "FAILED"
-  #     httr::PUT(url = paste("https://pops-model.org/api/run_collection/", run_collection_id, "/", sep = ""), body = run_collection, encode = "json")
-  #   }
-  # }
   status <- run$status
   
 }
