@@ -114,8 +114,8 @@ if (time_step == "week") {
 number_of_years <- end_time-start_time+1
 
 flyio_set_datasource("gcs")
-# flyio_set_bucket("test_pops_staging")
-flyio_set_bucket("pops_data_test")
+flyio_set_bucket("test_pops_staging")
+# flyio_set_bucket("pops_data_test")
 
 ## For SLF
 # infected <- import_raster(file = "initial_infections_2018_single_count_pm_prop.tif", FUN = raster)
@@ -128,7 +128,7 @@ flyio_set_bucket("pops_data_test")
 ## For SOD EU1
 infected <- import_raster(file = "cum_inf_2019eu.tif", FUN = raster)
 infected[is.na(infected)] <- 0
-host <- import_raster(file = "lide_100_median.tif", FUN = raster)
+host <- import_raster(file = "lide_100m_median_2018.tif", FUN = raster)
 host[is.na(host)] <- 0
 total_plants <- import_raster(file = "lemma_max100m.tif", FUN = raster)
 total_plants[is.na(total_plants)] <- 0
@@ -136,7 +136,7 @@ total_plants[is.na(total_plants)] <- 0
 ## For SOD NA1
 # infected <- import_raster(file = "cum_inf_2019.tif", FUN = raster)
 # infected[is.na(infected)] <- 0
-# host <- import_raster(file = "lide_100_median.tif", FUN = raster)
+# host <- import_raster(file = "lide_100m_median_2018.tif", FUN = raster)
 # host[is.na(host)] <- 0
 # total_plants <- import_raster(file = "lemma_max100m.tif", FUN = raster)
 # total_plants[is.na(total_plants)] <- 0
@@ -360,14 +360,15 @@ mortality_tracker <- raster::as.matrix(mortality_tracker)
 mortality <- mortality_tracker
 
 random_seed <- round(stats::runif(1, 1, 1000000))
-reproductive_rate <- 1.9
-natural_distance_scale <- 28
+reproductive_rate <- 1.6
+natural_distance_scale <- 242
 
 treatment_month <- 12
 treatment_method <- "ratio"
 
 # temperature <- avg_temperature
-weather_coefficient <- avg_weather_coefficient
+# weather_coefficient <- avg_weather_coefficient
+end_time <- 2021
 
 data <- PoPS::pops_model(random_seed = random_seed, 
                          use_lethal_temperature = use_lethal_temperature, 
@@ -396,7 +397,7 @@ data <- PoPS::pops_model(random_seed = random_seed,
                          anthropogenic_dir = anthropogenic_dir, anthropogenic_kappa = anthropogenic_kappa)
 
 
-weather_coefficient <- weather_coefficient[1:156]
+# weather_coefficient <- weather_coefficient[1:156]
 
 rm(data)
 rm(i)
@@ -419,9 +420,13 @@ rm(treatment_map)
 rm(low_weather_coefficient)
 rm(high_weather_coefficient)
 rm(avg_weather_coefficient)
-## Save to model api bucket
-gcs_save_image(file = paste("casestudy", case_study_id, ".Rdata", sep = ""), bucket = "pops_data_test")
-googleCloudStorageR::gcs_load(file = paste("casestudy", case_study_id, ".Rdata", sep = ""), bucket = "pops_data_test")
+
+natural_kernel_type = "exponential"
+
+# ## Save to model api bucket
+# gcs_save_image(file = paste("casestudy", case_study_id, ".Rdata", sep = ""), bucket = "pops_data_test")
+# googleCloudStorageR::gcs_load(file = paste("casestudy", case_study_id, ".Rdata", sep = ""), bucket = "pops_data_test")
+end_time <- 2023
 
 ## save to dashboard project bucket
 gcs_save_image(file = paste("casestudy", case_study_id, ".Rdata", sep = ""), bucket = "test_pops_staging")

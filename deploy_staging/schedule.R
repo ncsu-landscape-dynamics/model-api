@@ -1,4 +1,4 @@
-# devtools::install_github("ncsu-landscape-dynamics/rpops", ref="feature/spread_rate", force = TRUE)
+# devtools::install_github("ncsu-landscape-dynamics/rpops", force = TRUE)
 # Sys.setenv("GCS_AUTH_FILE" = "deploy_staging/auth2.json")
 library(googleAuthR)         ## authentication
 library(googleCloudStorageR)  ## google cloud storage
@@ -196,6 +196,7 @@ modelapi <- function(case_study_id, session_id, run_collection_id, run_id) {
   east_rates <- data.frame(t(years))
   south_rates <- data.frame(t(years))
   north_rates <- data.frame(t(years))
+  max_values <- data.frame(t(years))
   
   for (i in 1:length(probability_runs)) {
     prediction <- prediction + probability_runs[[i]]
@@ -206,6 +207,7 @@ modelapi <- function(case_study_id, session_id, run_collection_id, run_id) {
     east_rates[i,] <- rates[,3]
     south_rates[i,] <- rates[,2]
     north_rates[i,] <- rates[,1]
+    max_values[i,] <- maxValue(single_runs[[i]])
   }
   
   probability <- (prediction/(length(probability_runs))) * 100
@@ -216,7 +218,6 @@ modelapi <- function(case_study_id, session_id, run_collection_id, run_id) {
   east_rate <- round(sapply(east_rates, function(x) c( "Mean"= mean(x,na.rm=TRUE),"Stand dev" = sd(x))), digits = 0)
   south_rate <- round(sapply(south_rates, function(x) c( "Mean"= mean(x,na.rm=TRUE),"Stand dev" = sd(x))), digits = 0)
   north_rate <- round(sapply(north_rates, function(x) c( "Mean"= mean(x,na.rm=TRUE),"Stand dev" = sd(x))), digits = 0)
-  
   which_median <- function(x) raster::which.min(abs(x - median(x)))
   
   median_run_index <- which_median(infected_number[[1]])
@@ -227,6 +228,14 @@ modelapi <- function(case_study_id, session_id, run_collection_id, run_id) {
   run$status <- "WRITING DATA"
   httr::PUT(url = paste("https://pops-model.org/api/run/", run_id, "/", sep = ""), body = run, encode = "json")
   
+  if (run_id == session$date_created){
+    max_value <- round(sapply(max_values, function(x) c( "Mean"= mean(x,na.rm=TRUE),"Stand dev" = sd(x))), digits = 0)
+    max_value_out <- max_value[1,ncol(max_value)]
+    session$max_value <- max_value_out
+    httr::PUT(url = paste("https://pops-model.org/api/session/", session_id, "/", sep = ""), body = session, encode = "json")
+    
+  }
+
   single_run_out <- single_run[[1]]
   susceptible_run_out <- susceptible_run[[1]]
   
