@@ -1,4 +1,4 @@
-# Sys.setenv("GCS_AUTH_FILE" = "deploy_staging_test/auth.json")
+# Sys.setenv("GCS_AUTH_FILE" = "deploy_staging_test/auth2.json")
 library(googleAuthR)         ## authentication
 library(googleCloudStorageR)  ## google cloud storage
 library(readr)                ##
@@ -30,7 +30,7 @@ modelapi <- function(case_study_id, session_id, run_collection_id, run_id) {
   
   flyio::flyio_set_datasource("gcs")
   flyio::flyio_auth(auth_list = c("GCS_AUTH_FILE"))
-  flyio::flyio_set_bucket("pops_data_test")
+  flyio::flyio_set_bucket("test_pops_staging")
   
   options(digits = 6)
   run_id <- as.numeric(run_id)
@@ -45,9 +45,7 @@ modelapi <- function(case_study_id, session_id, run_collection_id, run_id) {
   run_collection <- httr::content(json_run_collection)
   json_session <- httr::GET(paste("https://pops-model.org/api/session/", session_id, "/?format=json", sep = ""))
   session <- httr::content(json_session)
-  json_case_study<- httr::GET(paste("https://pops-model.org/api/case_study/", case_study_id, "/?format=json", sep = ""))
-  case_study <- httr::content(json_case_study)
-  googleCloudStorageR::gcs_load(file = paste("casestudy", case_study_id, ".Rdata", sep = ""), bucket = "pops_data_test")
+  googleCloudStorageR::gcs_load(file = paste("casestudy", case_study_id, ".Rdata", sep = ""), bucket = "test_pops_staging")
   end_time <- session$final_year
   natural_distance_scale <- as.numeric(session$distance_scale)
   reproductive_rate <- as.numeric(session$reproductive_rate)
@@ -55,7 +53,7 @@ modelapi <- function(case_study_id, session_id, run_collection_id, run_id) {
   treatment_month <- session$management_month
   susceptible_start <- susceptible
   
-  if (is.null(run$management_polygons)) {
+  if (is.null(run$management_polygons || class(run$management_polygons) != "list")) {
     treatments_file <- ""
     treatment_years <- c(0)
     management <- FALSE
@@ -97,8 +95,8 @@ modelapi <- function(case_study_id, session_id, run_collection_id, run_id) {
       # previous_run <- httr::content(json_run_previous)
       # json_output <- httr::GET(paste("https://pops-model.org/api/output/", previous_run$output_initial_year, "/?format=json", sep = ""))
       # previous_output <- httr::content(json_output)
-      infected_r <- flyio::import_raster(file = paste("infected_", case_study_id, "_", run_collection$second_most_recent_run, ".tif", sep = ""), data_source = "gcs", bucket = "pops_data_test")
-      susceptible_r <- flyio::import_raster(file = paste("susceptible_", case_study_id, "_", run_collection$second_most_recent_run,".tif", sep = ""), data_source = "gcs", bucket = "pops_data_test")
+      infected_r <- flyio::import_raster(file = paste("infected_", case_study_id, "_", run_collection$second_most_recent_run, ".tif", sep = ""), data_source = "gcs", bucket = "test_pops_staging")
+      susceptible_r <- flyio::import_raster(file = paste("susceptible_", case_study_id, "_", run_collection$second_most_recent_run,".tif", sep = ""), data_source = "gcs", bucket = "test_pops_staging")
       infected <- raster::as.matrix(infected_r)
       susceptible <- raster::as.matrix(susceptible_r)
     }
@@ -185,6 +183,7 @@ modelapi <- function(case_study_id, session_id, run_collection_id, run_id) {
   east_rates <- data.frame(t(years))
   south_rates <- data.frame(t(years))
   north_rates <- data.frame(t(years))
+  max_values <- data.frame(t(years))
   
   for (i in 1:length(probability_runs)) {
     prediction <- prediction + probability_runs[[i]]
@@ -195,7 +194,9 @@ modelapi <- function(case_study_id, session_id, run_collection_id, run_id) {
     east_rates[i,] <- rates[,3]
     south_rates[i,] <- rates[,2]
     north_rates[i,] <- rates[,1]
+    max_values[i,] <- raster::maxValue(single_runs[[i]])
   }
+  
   
   probability <- (prediction/(length(probability_runs))) * 100
   
@@ -205,7 +206,6 @@ modelapi <- function(case_study_id, session_id, run_collection_id, run_id) {
   east_rate <- round(sapply(east_rates, function(x) c( "Mean"= mean(x,na.rm=TRUE),"Stand dev" = sd(x))), digits = 0)
   south_rate <- round(sapply(south_rates, function(x) c( "Mean"= mean(x,na.rm=TRUE),"Stand dev" = sd(x))), digits = 0)
   north_rate <- round(sapply(north_rates, function(x) c( "Mean"= mean(x,na.rm=TRUE),"Stand dev" = sd(x))), digits = 0)
-  
   which_median <- function(x) raster::which.min(abs(x - median(x)))
   
   median_run_index <- which_median(infected_number[[1]])
@@ -213,16 +213,23 @@ modelapi <- function(case_study_id, session_id, run_collection_id, run_id) {
   single_run <- single_runs[[median_run_index]]
   susceptible_run <- susceptible_runs[[median_run_index]]
   
-  run$logging <- "Working before "
   run$status <- "WRITING DATA"
   httr::PUT(url = paste("https://pops-model.org/api/run/", run_id, "/", sep = ""), body = run, encode = "json")
+  
+  if (run_id == session$default_run) {
+    max_value <- round(sapply(max_values, function(x) c( "Mean"= mean(x,na.rm=TRUE),"Stand dev" = sd(x))), digits = 0)
+    max_value_out <- max_value[1,ncol(max_value)]
+    session$max_value <- max_value_out
+    httr::PUT(url = paste("https://pops-model.org/api/session/", session_id, "/", sep = ""), body = session, encode = "json")
+    
+  }
   
   single_run_out <- single_run[[1]]
   susceptible_run_out <- susceptible_run[[1]]
   
   flyio::flyio_auth(auth_list = c("GCS_AUTH_FILE"))
-  flyio::export_raster(x = single_run_out, file = paste("infected_", case_study_id , "_", run_id ,".tif", sep = ""), data_source = "gcs", bucket = "pops_data_test")
-  flyio::export_raster(x = susceptible_run_out, file = paste("susceptible_", case_study_id , "_", run_id ,".tif", sep = ""), data_source = "gcs", bucket = "pops_data_test", overwrite = TRUE)
+  flyio::export_raster(x = single_run_out, file = paste("infected_", case_study_id , "_", run_id ,".tif", sep = ""), data_source = "gcs", bucket = "test_pops_staging")
+  flyio::export_raster(x = susceptible_run_out, file = paste("susceptible_", case_study_id , "_", run_id ,".tif", sep = ""), data_source = "gcs", bucket = "test_pops_staging", overwrite = TRUE)
 
   run$logging <- "Working after"
   httr::PUT(url = paste("https://pops-model.org/api/run/", run_id, "/", sep = ""), body = run, encode = "json")
@@ -307,9 +314,9 @@ modelapi <- function(case_study_id, session_id, run_collection_id, run_id) {
     }
     stuff <- run$status
   }
-  
-  run$status <- stuff[[1]]
+
   stopCluster(cl)
+  run$status <- stuff[[1]]
   
   if (run$status == "SUCCESS") {
     httr::PUT(url = paste("https://pops-model.org/api/run/", run_id, "/", sep = ""), body = run, encode = "json")
