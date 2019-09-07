@@ -1,4 +1,3 @@
-# devtools::install_github("ncsu-landscape-dynamics/rpops", force = TRUE)
 # Sys.setenv("GCS_AUTH_FILE" = "deploy_staging/auth2.json")
 library(googleAuthR)         ## authentication
 library(googleCloudStorageR)  ## google cloud storage
@@ -42,10 +41,7 @@ modelapi <- function(case_study_id, session_id, run_collection_id, run_id) {
   run_collection <- httr::content(json_run_collection)
   json_session <- httr::GET(paste("https://pops-model.org/api/session/", session_id, "/?format=json", sep = ""))
   session <- httr::content(json_session)
-  # json_case_study<- httr::GET(paste("https://pops-model.org/api/case_study/", case_study_id, "/?format=json", sep = ""))
-  # case_study <- httr::content(json_case_study)
   googleCloudStorageR::gcs_load(file = paste("casestudy", case_study_id, ".Rdata", sep = ""), bucket = "test_pops_staging")
-  # googleCloudStorageR::gcs_load(file = paste("casestudy", case_study_id, ".Rdata", sep = ""), bucket = "pops_data_test")
   end_time <- session$final_year
   natural_distance_scale <- as.numeric(session$distance_scale)
   reproductive_rate <- as.numeric(session$reproductive_rate)
@@ -53,7 +49,7 @@ modelapi <- function(case_study_id, session_id, run_collection_id, run_id) {
   treatment_month <- session$management_month
   susceptible_start <- susceptible
   
-  if (is.null(run$management_polygons)) {
+  if (is.null(run$management_polygons) || class(run$management_polygons) != "list") {
     treatments_file <- ""
     treatment_years <- c(0)
     management <- FALSE
@@ -163,6 +159,7 @@ modelapi <- function(case_study_id, session_id, run_collection_id, run_id) {
                              natural_distance_scale = natural_distance_scale, anthropogenic_distance_scale = anthropogenic_distance_scale, 
                              natural_dir = natural_dir, natural_kappa = natural_kappa,
                              anthropogenic_dir = anthropogenic_dir, anthropogenic_kappa = anthropogenic_kappa)
+    
     comp_years <- raster::stack(lapply(1:length(data$infected_before_treatment), function(i) host))
     susceptible_runs <- raster::stack(lapply(1:length(data$infected_before_treatment), function(i) host))
     for (q in 1:raster::nlayers(comp_years)) {
@@ -207,7 +204,7 @@ modelapi <- function(case_study_id, session_id, run_collection_id, run_id) {
     east_rates[i,] <- rates[,3]
     south_rates[i,] <- rates[,2]
     north_rates[i,] <- rates[,1]
-    max_values[i,] <- maxValue(single_runs[[i]])
+    max_values[i,] <- raster::maxValue(single_runs[[i]])
   }
   
   probability <- (prediction/(length(probability_runs))) * 100
@@ -228,7 +225,7 @@ modelapi <- function(case_study_id, session_id, run_collection_id, run_id) {
   run$status <- "WRITING DATA"
   httr::PUT(url = paste("https://pops-model.org/api/run/", run_id, "/", sep = ""), body = run, encode = "json")
   
-  if (run_id == session$date_created){
+  if (run_id == session$default_run) {
     max_value <- round(sapply(max_values, function(x) c( "Mean"= mean(x,na.rm=TRUE),"Stand dev" = sd(x))), digits = 0)
     max_value_out <- max_value[1,ncol(max_value)]
     session$max_value <- max_value_out
