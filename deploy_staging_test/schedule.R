@@ -53,7 +53,7 @@ modelapi <- function(case_study_id, session_id, run_collection_id, run_id) {
   treatment_month <- session$management_month
   susceptible_start <- susceptible
   
-  if (is.null(run$management_polygons || class(run$management_polygons) != "list")) {
+  if (is.null(run$management_polygons) || class(run$management_polygons) != "list") {
     treatments_file <- ""
     treatment_years <- c(0)
     management <- FALSE
@@ -91,12 +91,10 @@ modelapi <- function(case_study_id, session_id, run_collection_id, run_id) {
   if (!is.null(run$steering_year)) {
     
     if (run$steering_year > start_time) {
-      # json_run_previous <- httr::GET(paste("https://pops-model.org/api/run/", run_collection$second_most_recent_run, "/?format=json", sep = ""))
-      # previous_run <- httr::content(json_run_previous)
-      # json_output <- httr::GET(paste("https://pops-model.org/api/output/", previous_run$output_initial_year, "/?format=json", sep = ""))
-      # previous_output <- httr::content(json_output)
       infected_r <- flyio::import_raster(file = paste("infected_", case_study_id, "_", run_collection$second_most_recent_run, ".tif", sep = ""), data_source = "gcs", bucket = "test_pops_staging")
+      # infected_r[is.na(infected_r)] <- 0
       susceptible_r <- flyio::import_raster(file = paste("susceptible_", case_study_id, "_", run_collection$second_most_recent_run,".tif", sep = ""), data_source = "gcs", bucket = "test_pops_staging")
+      # susceptible_r[is.na(susceptible_r)] <- 0
       infected <- raster::as.matrix(infected_r)
       susceptible <- raster::as.matrix(susceptible_r)
     }
@@ -104,7 +102,9 @@ modelapi <- function(case_study_id, session_id, run_collection_id, run_id) {
     years_difference <- run$steering_year - start_time
     start_time <- run$steering_year
     years_move <- years_difference + 1
-    temperature <- temperature[years_move:length(temperature)]
+    if (use_lethal_temperature) {
+      temperature <- temperature[years_move:length(temperature)]
+    }
     time_step_move <- years_difference * steps_in_year + 1
     weather_coefficient <- weather_coefficient[time_step_move:length(weather_coefficient)]
   }
@@ -231,10 +231,7 @@ modelapi <- function(case_study_id, session_id, run_collection_id, run_id) {
   flyio::export_raster(x = single_run_out, file = paste("infected_", case_study_id , "_", run_id ,".tif", sep = ""), data_source = "gcs", bucket = "test_pops_staging")
   flyio::export_raster(x = susceptible_run_out, file = paste("susceptible_", case_study_id , "_", run_id ,".tif", sep = ""), data_source = "gcs", bucket = "test_pops_staging", overwrite = TRUE)
 
-  run$logging <- "Working after"
-  httr::PUT(url = paste("https://pops-model.org/api/run/", run_id, "/", sep = ""), body = run, encode = "json")
-  
-  core_count <- 10
+  # core_count <- 10
   cl <- makeCluster(core_count)
   registerDoParallel(cl)
   

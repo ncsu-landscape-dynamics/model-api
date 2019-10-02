@@ -1,12 +1,12 @@
 case_study_id = "3"
-session_id = "84"
-run_collection_id = "522"
-run_id = "773"
-
-case_study_id = "3"
 session_id = "81"
-run_collection_id = "522"
-run_id = "753"
+run_collection_id = "545"
+run_id = "796"
+
+case_study_id = "5"
+session_id = "92"
+run_collection_id = "561"
+run_id = "817"
 
 
 set.seed(33)
