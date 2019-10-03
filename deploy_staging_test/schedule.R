@@ -258,20 +258,20 @@ modelapi <- function(case_study_id, session_id, run_collection_id, run_id) {
     single_map <- as.integer(single_map)
     single_map[single_map <= 0] <- NA
     names(single_map) <- "outputs"
-    single_map <- projectRaster(single_map, crs = CRS("+proj=longlat +datum=WGS84"), method = "ngb")
+    # single_map <- projectRaster(single_map, crs = CRS("+proj=longlat +datum=WGS84"), method = "ngb")
     single_map <- raster::rasterToPolygons(single_map, n = 4, digits = 4, dissolve = T, na.rm = TRUE)
     storage.mode(single_map$outputs) <- "integer"
-    single_map <- geojsonio::geojson_list(single_map, convert_wgs84 = TRUE, geometry = "polygon")
+    single_map <- geojsonio::geojson_list(single_map, precision = 4, convert_wgs84 = TRUE, geometry = "polygon")
     class(single_map) <- "list"
     
     spread_map <- probability[[q]]
     spread_map <- as.integer(spread_map)
     spread_map[spread_map <= 0] <- NA
     names(spread_map) <- "outputs"
-    spread_map <- projectRaster(spread_map, crs = CRS("+proj=longlat +datum=WGS84"), method = "ngb")
-    spread_map <- raster::rasterToPolygons(spread_map, n = 4, digits = 4, dissolve = T, na.rm = TRUE)
+    # spread_map <- projectRaster(spread_map, crs = CRS("+proj=longlat +datum=WGS84"), method = "ngb")
+    spread_map <- raster::rasterToPolygons(spread_map, n = 4, dissolve = T, na.rm = TRUE)
     storage.mode(spread_map$outputs) <- "integer"
-    spread_map <- geojsonio::geojson_list(spread_map, convert_wgs84 = TRUE, geometry = "polygon")
+    spread_map <- geojsonio::geojson_list(spread_map, precision = 4, convert_wgs84 = TRUE, geometry = "polygon")
     class(spread_map) <- "list"
     
     outs <- list()
