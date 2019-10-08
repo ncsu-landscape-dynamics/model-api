@@ -1,4 +1,4 @@
-Sys.setenv("GCS_AUTH_FILE" = "deploy_staging_test/auth2.json")
+# Sys.setenv("GCS_AUTH_FILE" = "deploy_staging_test/auth2.json")
 library(googleAuthR)         ## authentication
 library(googleCloudStorageR)  ## google cloud storage
 library(readr)                ##
@@ -95,9 +95,17 @@ modelapi <- function(case_study_id, session_id, run_collection_id, run_id) {
       susceptible_r <- flyio::import_raster(file = paste("susceptible_", case_study_id, "_", run_collection$second_most_recent_run,".tif", sep = ""), data_source = "gcs", bucket = "test_pops_staging")
       infected <- raster::as.matrix(infected_r)
       susceptible <- raster::as.matrix(susceptible_r)
-      run$management_cost <- sum(treatment_map[treatment_map > 0 & (infected_r > 0 | susceptible_r > 0)]) * xres(treatment_map) * yres(treatment_map) * as.numeric(run_collection$cost_per_meter_squared)
+      if (is.null(run$management_polygons) || class(run$management_polygons) != "list") {
+        
+      } else {
+        run$management_cost <- sum(treatment_map[treatment_map > 0 & (infected_r > 0 | susceptible_r > 0)]) * xres(treatment_map) * yres(treatment_map) * as.numeric(run_collection$cost_per_meter_squared)
+      }
     } else {
-      run$management_cost <- sum(treatment_map[treatment_map > 0 & (host > 0)]) * xres(treatment_map) * yres(treatment_map) * as.numeric(run_collection$cost_per_meter_squared)
+      if (is.null(run$management_polygons) || class(run$management_polygons) != "list") {
+        
+      } else {
+        run$management_cost <- sum(treatment_map[treatment_map > 0 & (host > 0)]) * xres(treatment_map) * yres(treatment_map) * as.numeric(run_collection$cost_per_meter_squared)
+      }
     }
     
     years_difference <- run$steering_year - start_time
