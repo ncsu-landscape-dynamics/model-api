@@ -51,7 +51,8 @@ modelapi <- function(case_study_id, session_id, run_collection_id, run_id) {
   reproductive_rate <- as.numeric(session$reproductive_rate)
   efficacy = run_collection$efficacy
   treatment_month <- session$management_month
-  susceptible_start <- susceptible
+  # susceptible_start <- susceptible
+  infected_start <- raster(infected, host)
   
   if (is.null(run$management_polygons) || class(run$management_polygons) != "list") {
     treatments_file <- ""
@@ -248,17 +249,47 @@ modelapi <- function(case_study_id, session_id, run_collection_id, run_id) {
     if (q == 1) {
       number_infected <- infected_number[median_run_index, q]
       area_infected <- infected_area[median_run_index, q]
-      west_rate_r <- west_rates[median_run_index,q]
-      east_rate_r <- east_rates[median_run_index,q]
-      south_rate_r <- south_rates[median_run_index,q]
-      north_rate_r <- north_rates[median_run_index,q]
+      if (is.nan(west_rates[median_run_index,q])) {
+        west_rate_r <- 0
+      } else {
+        west_rate_r <- west_rates[median_run_index,q]
+      }
+      if (is.nan(east_rates[median_run_index,q])) {
+        east_rate_r <- 0
+      } else {
+        east_rate_r <- east_rates[median_run_index,q]
+      }
+      if (is.nan(south_rates[median_run_index,q])) {
+        south_rate_r <- 0
+      } else {
+        south_rate_r <- south_rates[median_run_index,q]
+      }
+      if (is.nan(north_rates[median_run_index,q])) {
+        north_rate_r <- 0
+      } else {
+        north_rate_r <- north_rates[median_run_index,q]      
+      }
     } else if (q > 1) {
       number_infected <- number_infecteds[1, q]
       area_infected <- infected_areas[1, q]
-      west_rate_r <- west_rate[1,q]
-      east_rate_r <- east_rate[1,q]
-      south_rate_r <- south_rate[1,q]
-      north_rate_r <- north_rate[1,q]
+      if (is.nan(west_rate[1,q])) {
+        west_rate_r <- 0
+      } else {
+        west_rate_r <- west_rate[1,q]      }
+      if (is.nan(east_rate[1,q])) {
+        east_rate_r <- 0
+      } else {
+        east_rate_r <- east_rate[1,q]
+      }
+      if (is.nan(south_rate[1,q])) {
+        south_rate_r <- 0
+      } else {
+        south_rate_r <- south_rate[1,q]      }
+      if (is.nan(north_rate[1,q])) {
+        north_rate_r <- 0
+      } else {
+        north_rate_r <- north_rate[1,q]     
+      }
     }
     
     year <- years[q]
@@ -267,6 +298,9 @@ modelapi <- function(case_study_id, session_id, run_collection_id, run_id) {
     single_map <- as.integer(single_map)
     single_map[single_map <= 0] <- NA
     names(single_map) <- "outputs"
+    if (cellStats(single_map, stat = 'sum') == 0) {
+      single_map[infected_start > 0] <- 0
+    }
     # single_map <- projectRaster(single_map, crs = CRS("+proj=longlat +datum=WGS84"), method = "ngb")
     single_map <- raster::rasterToPolygons(single_map, n = 4, digits = 4, dissolve = T, na.rm = TRUE)
     storage.mode(single_map$outputs) <- "integer"
@@ -277,6 +311,9 @@ modelapi <- function(case_study_id, session_id, run_collection_id, run_id) {
     spread_map <- as.integer(spread_map)
     spread_map[spread_map <= 0] <- NA
     names(spread_map) <- "outputs"
+    if (cellStats(spread_map, stat = 'sum') == 0) {
+      spread_map[infected_start > 0] <- 0
+    }
     # spread_map <- projectRaster(spread_map, crs = CRS("+proj=longlat +datum=WGS84"), method = "ngb")
     spread_map <- raster::rasterToPolygons(spread_map, n = 4, dissolve = T, na.rm = TRUE)
     storage.mode(spread_map$outputs) <- "integer"
