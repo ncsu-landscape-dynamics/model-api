@@ -52,7 +52,7 @@ modelapi <- function(case_study_id, session_id, run_collection_id, run_id) {
   efficacy = run_collection$efficacy
   treatment_month <- session$management_month
   # susceptible_start <- susceptible
-  infected_start <- raster(infected, host)
+  # infected_start <- raster(infected, host)
   
   if (is.null(run$management_polygons) || class(run$management_polygons) != "list") {
     treatments_file <- ""
@@ -64,8 +64,8 @@ modelapi <- function(case_study_id, session_id, run_collection_id, run_id) {
     treatments <- geojson::as.geojson(treatments)
     treatments <- geojsonio::geojson_sp(treatments)
     treatments <- spTransform(treatments, CRS = crs(host))
-    treatment_map <- raster::rasterize(treatments, host, fun = "last")
-    treatment_map[treatment_map > 1] <- 1 ## rasterize gives rasters in each polygon the polygon id value need to set those to 1
+    treatment_map <- raster::rasterize(treatments, host, fun = "last", getCover = TRUE)
+    # treatment_map[treatment_map > 1] <- 1 ## rasterize gives rasters in each polygon the polygon id value need to set those to 1
     treatment_map[is.na(treatment_map)] <- 0
     treatment_map <- treatment_map * (efficacy / 100)
     treatment_maps <- list(raster::as.matrix(treatment_map))
@@ -99,13 +99,13 @@ modelapi <- function(case_study_id, session_id, run_collection_id, run_id) {
       if (is.null(run$management_polygons) || class(run$management_polygons) != "list") {
         
       } else {
-        run$management_cost <- sum(treatment_map[treatment_map > 0 & (infected_r > 0 | susceptible_r > 0)]) * xres(treatment_map) * yres(treatment_map) * as.numeric(run_collection$cost_per_meter_squared)
+        run$management_cost <- round(sum(treatment_map[treatment_map > 0 & (infected_r > 0 | susceptible_r > 0)]) * xres(treatment_map) * yres(treatment_map) * as.numeric(run_collection$cost_per_meter_squared), digits = 2)
       }
     } else {
       if (is.null(run$management_polygons) || class(run$management_polygons) != "list") {
         
       } else {
-        run$management_cost <- sum(treatment_map[treatment_map > 0 & (host > 0)]) * xres(treatment_map) * yres(treatment_map) * as.numeric(run_collection$cost_per_meter_squared)
+        run$management_cost <- round(sum(treatment_map[treatment_map > 0 & (host > 0)]) * xres(treatment_map) * yres(treatment_map) * as.numeric(run_collection$cost_per_meter_squared), digits = 2)
       }
     }
     
