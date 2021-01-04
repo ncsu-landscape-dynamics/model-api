@@ -51,9 +51,10 @@ modelapi <- function(case_study_id, session_id, run_collection_id, run_id) {
   reproductive_rate <- as.numeric(session$reproductive_rate)
   efficacy = run_collection$efficacy
   treatment_month <- session$management_month
-  susceptible_start <- susceptible
+  # susceptible_start <- susceptible
+  # infected_start <- raster(infected, host)
   
-  if (is.null(run$management_polygons || class(run$management_polygons) != "list")) {
+  if (is.null(run$management_polygons) || class(run$management_polygons) != "list") {
     treatments_file <- ""
     treatment_years <- c(0)
     management <- FALSE
@@ -63,8 +64,8 @@ modelapi <- function(case_study_id, session_id, run_collection_id, run_id) {
     treatments <- geojson::as.geojson(treatments)
     treatments <- geojsonio::geojson_sp(treatments)
     treatments <- spTransform(treatments, CRS = crs(host))
-    treatment_map <- raster::rasterize(treatments, host, fun = "last")
-    treatment_map[treatment_map > 1] <- 1 ## rasterize gives rasters in each polygon the polygon id value need to set those to 1
+    treatment_map <- raster::rasterize(treatments, host, fun = "last", getCover = TRUE)
+    # treatment_map[treatment_map > 1] <- 1 ## rasterize gives rasters in each polygon the polygon id value need to set those to 1
     treatment_map[is.na(treatment_map)] <- 0
     treatment_map <- treatment_map * (efficacy / 100)
     treatment_maps <- list(raster::as.matrix(treatment_map))
@@ -91,20 +92,29 @@ modelapi <- function(case_study_id, session_id, run_collection_id, run_id) {
   if (!is.null(run$steering_year)) {
     
     if (run$steering_year > start_time) {
-      # json_run_previous <- httr::GET(paste("https://pops-model.org/api/run/", run_collection$second_most_recent_run, "/?format=json", sep = ""))
-      # previous_run <- httr::content(json_run_previous)
-      # json_output <- httr::GET(paste("https://pops-model.org/api/output/", previous_run$output_initial_year, "/?format=json", sep = ""))
-      # previous_output <- httr::content(json_output)
       infected_r <- flyio::import_raster(file = paste("infected_", case_study_id, "_", run_collection$second_most_recent_run, ".tif", sep = ""), data_source = "gcs", bucket = "test_pops_staging")
       susceptible_r <- flyio::import_raster(file = paste("susceptible_", case_study_id, "_", run_collection$second_most_recent_run,".tif", sep = ""), data_source = "gcs", bucket = "test_pops_staging")
       infected <- raster::as.matrix(infected_r)
       susceptible <- raster::as.matrix(susceptible_r)
+      if (is.null(run$management_polygons) || class(run$management_polygons) != "list") {
+        
+      } else {
+        run$management_cost <- round(sum(treatment_map[treatment_map > 0 & (infected_r > 0 | susceptible_r > 0)]) * xres(treatment_map) * yres(treatment_map) * as.numeric(run_collection$cost_per_meter_squared), digits = 2)
+      }
+    } else {
+      if (is.null(run$management_polygons) || class(run$management_polygons) != "list") {
+        
+      } else {
+        run$management_cost <- round(sum(treatment_map[treatment_map > 0 & (host > 0)]) * xres(treatment_map) * yres(treatment_map) * as.numeric(run_collection$cost_per_meter_squared), digits = 2)
+      }
     }
     
     years_difference <- run$steering_year - start_time
     start_time <- run$steering_year
     years_move <- years_difference + 1
-    temperature <- temperature[years_move:length(temperature)]
+    if (use_lethal_temperature) {
+      temperature <- temperature[years_move:length(temperature)]
+    }
     time_step_move <- years_difference * steps_in_year + 1
     weather_coefficient <- weather_coefficient[time_step_move:length(weather_coefficient)]
   }
@@ -231,10 +241,7 @@ modelapi <- function(case_study_id, session_id, run_collection_id, run_id) {
   flyio::export_raster(x = single_run_out, file = paste("infected_", case_study_id , "_", run_id ,".tif", sep = ""), data_source = "gcs", bucket = "test_pops_staging")
   flyio::export_raster(x = susceptible_run_out, file = paste("susceptible_", case_study_id , "_", run_id ,".tif", sep = ""), data_source = "gcs", bucket = "test_pops_staging", overwrite = TRUE)
 
-  run$logging <- "Working after"
-  httr::PUT(url = paste("https://pops-model.org/api/run/", run_id, "/", sep = ""), body = run, encode = "json")
-  
-  core_count <- 10
+  # core_count <- 10
   cl <- makeCluster(core_count)
   registerDoParallel(cl)
   
@@ -242,17 +249,47 @@ modelapi <- function(case_study_id, session_id, run_collection_id, run_id) {
     if (q == 1) {
       number_infected <- infected_number[median_run_index, q]
       area_infected <- infected_area[median_run_index, q]
-      west_rate_r <- west_rates[median_run_index,q]
-      east_rate_r <- east_rates[median_run_index,q]
-      south_rate_r <- south_rates[median_run_index,q]
-      north_rate_r <- north_rates[median_run_index,q]
+      if (is.nan(west_rates[median_run_index,q])) {
+        west_rate_r <- 0
+      } else {
+        west_rate_r <- west_rates[median_run_index,q]
+      }
+      if (is.nan(east_rates[median_run_index,q])) {
+        east_rate_r <- 0
+      } else {
+        east_rate_r <- east_rates[median_run_index,q]
+      }
+      if (is.nan(south_rates[median_run_index,q])) {
+        south_rate_r <- 0
+      } else {
+        south_rate_r <- south_rates[median_run_index,q]
+      }
+      if (is.nan(north_rates[median_run_index,q])) {
+        north_rate_r <- 0
+      } else {
+        north_rate_r <- north_rates[median_run_index,q]      
+      }
     } else if (q > 1) {
       number_infected <- number_infecteds[1, q]
       area_infected <- infected_areas[1, q]
-      west_rate_r <- west_rate[1,q]
-      east_rate_r <- east_rate[1,q]
-      south_rate_r <- south_rate[1,q]
-      north_rate_r <- north_rate[1,q]
+      if (is.nan(west_rate[1,q])) {
+        west_rate_r <- 0
+      } else {
+        west_rate_r <- west_rate[1,q]      }
+      if (is.nan(east_rate[1,q])) {
+        east_rate_r <- 0
+      } else {
+        east_rate_r <- east_rate[1,q]
+      }
+      if (is.nan(south_rate[1,q])) {
+        south_rate_r <- 0
+      } else {
+        south_rate_r <- south_rate[1,q]      }
+      if (is.nan(north_rate[1,q])) {
+        north_rate_r <- 0
+      } else {
+        north_rate_r <- north_rate[1,q]     
+      }
     }
     
     year <- years[q]
@@ -261,20 +298,26 @@ modelapi <- function(case_study_id, session_id, run_collection_id, run_id) {
     single_map <- as.integer(single_map)
     single_map[single_map <= 0] <- NA
     names(single_map) <- "outputs"
-    single_map <- projectRaster(single_map, crs = CRS("+proj=longlat +datum=WGS84"), method = "ngb")
+    if (cellStats(single_map, stat = 'sum') == 0) {
+      single_map[infected_start > 0] <- 0
+    }
+    # single_map <- projectRaster(single_map, crs = CRS("+proj=longlat +datum=WGS84"), method = "ngb")
     single_map <- raster::rasterToPolygons(single_map, n = 4, digits = 4, dissolve = T, na.rm = TRUE)
     storage.mode(single_map$outputs) <- "integer"
-    single_map <- geojsonio::geojson_list(single_map, convert_wgs84 = TRUE, geometry = "polygon")
+    single_map <- geojsonio::geojson_list(single_map, precision = 4, convert_wgs84 = TRUE, geometry = "polygon")
     class(single_map) <- "list"
     
     spread_map <- probability[[q]]
     spread_map <- as.integer(spread_map)
     spread_map[spread_map <= 0] <- NA
     names(spread_map) <- "outputs"
-    spread_map <- projectRaster(spread_map, crs = CRS("+proj=longlat +datum=WGS84"), method = "ngb")
-    spread_map <- raster::rasterToPolygons(spread_map, n = 4, digits = 4, dissolve = T, na.rm = TRUE)
+    if (cellStats(spread_map, stat = 'sum') == 0) {
+      spread_map[infected_start > 0] <- 0
+    }
+    # spread_map <- projectRaster(spread_map, crs = CRS("+proj=longlat +datum=WGS84"), method = "ngb")
+    spread_map <- raster::rasterToPolygons(spread_map, n = 4, dissolve = T, na.rm = TRUE)
     storage.mode(spread_map$outputs) <- "integer"
-    spread_map <- geojsonio::geojson_list(spread_map, convert_wgs84 = TRUE, geometry = "polygon")
+    spread_map <- geojsonio::geojson_list(spread_map, precision = 4, convert_wgs84 = TRUE, geometry = "polygon")
     class(spread_map) <- "list"
     
     outs <- list()

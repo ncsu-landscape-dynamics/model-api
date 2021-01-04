@@ -18,8 +18,8 @@ RUN apt-get update \
 	libxml2-dev \
 	make \
 	protobuf-compiler
-RUN ["install2.r", "askpass", "assertthat", "aws.s3", "aws.signature", "backports", "base64enc", "callr", "class", "classInt", "cli", "codetools", "crayon", "curl", "DBI", "desc", "devtools", "digest", "doParallel", "e1071", "flyio", "foreach", "foreign", "fs", "geojson", "geojsonio", "glue", "googleAuthR", "googleCloudStorageR", "hms", "httr", "iterators", "jqr", "jsonlite", "KernSmooth", "landscapemetrics", "lattice", "lazyeval", "magrittr", "maptools", "memoise", "openssl", "pillar", "pkgbuild", "pkgconfig", "pkgload", "prettyunits", "processx", "protolite", "ps", "R6", "raster", "Rcpp", "readr", "remotes", "rgdal", "rgeos", "rlang", "rprojroot", "rstudioapi", "sessioninfo", "sf", "sp", "stringi", "stringr", "testthat", "tibble", "units", "usethis", "V8", "withr", "xml2", "yaml", "zip"]
-RUN ["installGithub.r", "ncsu-landscape-dynamics/rpops@9cfedf37808be7cf40760015f84b1afcc1d39db0"]
+RUN ["install2.r", "askpass", "assertthat", "aws.s3", "aws.signature", "backports", "base64enc", "callr", "class", "classInt", "cli", "codetools", "crayon", "curl", "DBI", "desc", "devtools", "digest", "doParallel", "e1071", "flyio", "foreach", "foreign", "fs", "geojson", "glue", "googleAuthR", "googleCloudStorageR", "hms", "httr", "iterators", "jqr", "jsonlite", "KernSmooth", "landscapemetrics", "lattice", "lazyeval", "magrittr", "maptools", "memoise", "openssl", "pillar", "pkgbuild", "pkgconfig", "pkgload", "prettyunits", "processx", "protolite", "ps", "R6", "raster", "Rcpp", "readr", "remotes", "rgdal", "rgeos", "rlang", "rprojroot", "rstudioapi", "sessioninfo", "sf", "sp", "stringi", "stringr", "testthat", "tibble", "units", "usethis", "V8", "vctrs", "withr", "xml2", "yaml", "zeallot", "zip"]
+RUN ["installGithub.r", "ChrisJones687/geojsonio@5127dbf4536febb1294c0ab56b2572b86c27295c", "ncsu-landscape-dynamics/rpops@9cfedf37808be7cf40760015f84b1afcc1d39db0"]
 WORKDIR /payload/
 COPY ["./", "./"]
 EXPOSE 8080
