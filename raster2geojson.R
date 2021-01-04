@@ -7,9 +7,15 @@ slf2016 <- raster("H:/Shared drives/APHIS  Projects/PoPS/Case Studies/spotted_la
 slf2017 <- raster("H:/Shared drives/APHIS  Projects/PoPS/Case Studies/spotted_latternfly/slf_6_state_region_psuedo_mercator/initial_infections_2017_single_count_pm.tif")
 slf2017_2 <- raster("H:/Shared drives/APHIS  Projects/PoPS/Case Studies/spotted_latternfly/slf_6_state_region_psuedo_mercator/initial_infections_2017_single_count_pm2.tif")
 slf2018 <- raster("H:/Shared drives/APHIS  Projects/PoPS/Case Studies/spotted_latternfly/slf_6_state_region_psuedo_mercator/initial_infections_2018_single_count_pm.tif")
-# 
-# rcl <- c(1, Inf, 1, 0, 0.99, NA)
-# rclmat <- matrix(rcl, ncol=3, byrow=TRUE)
+
+rcl <- c(1, Inf, 1, 0, 0.99, NA)
+rclmat <- matrix(rcl, ncol=3, byrow=TRUE)
+infected <- sum(slf2018[slf2018 >0])
+slf2018 <- raster::reclassify(slf2018, rclmat)
+slf2018[is.na(slf2018)] <- 0
+area <- sum(slf2018[slf2018 > 0]) * raster::xres(slf2018) * raster::yres(slf2018)
+
+
 
 slf2014[slf2014 == 0] <- NA
 slf2014 <- as.integer(slf2014)
@@ -72,4 +78,21 @@ tanoak_p <- raster::rasterToPolygons(tanoak, n = 4, digits = 0, dissolve = T, na
 storage.mode(tanoak_p$outputs) <- "integer"
 geojsonio::geojson_write(tanoak_p, convert_wgs84 = TRUE, geometry = "polygon", precision = 3, file = "C:/Users/Chris/Desktop/Geojson SLF data/tanoak_eu1.geojson")
 
+
+na2018 <- raster("H:/Shared drives/APHIS  Projects/PoPS/Case Studies/sudden_oak_death/Oregon/LEMMA Data Curry County/100m/cum_inf_2019.tif")
+rcl <- c(1, Inf, 1, 0, 0.99, NA)
+rclmat <- matrix(rcl, ncol=3, byrow=TRUE)
+infected <- sum(na2018[na2018 >0])
+na2018 <- raster::reclassify(na2018, rclmat)
+na2018[is.na(na2018)] <- 0
+area <- sum(na2018[na2018 > 0]) * raster::xres(na2018) * raster::yres(na2018)
+
+
+eu2018 <- raster("H:/Shared drives/APHIS  Projects/PoPS/Case Studies/sudden_oak_death/Oregon/LEMMA Data Curry County/100m/cum_inf_2019eu.tif")
+rcl <- c(1, Inf, 1, 0, 0.99, NA)
+rclmat <- matrix(rcl, ncol=3, byrow=TRUE)
+infected <- sum(eu2018[eu2018 >0])
+eu2018 <- raster::reclassify(eu2018, rclmat)
+eu2018[is.na(eu2018)] <- 0
+area <- sum(eu2018[eu2018 > 0]) * raster::xres(eu2018) * raster::yres(eu2018)
 
