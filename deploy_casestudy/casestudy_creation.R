@@ -28,81 +28,140 @@ case_studey_setup <- function(case_study_id) {
   
   case_study_id <- as.numeric(case_study_id)
   json_case_study <- httr::GET(paste("https://popsmodel.org/api/case_study/", case_study_id ,"/?format=json", sep = ""))
+  
   case_study <- httr::content(json_case_study)
   
-  temp <- case_study$weather$temp_on
-  precip <- case_study$weather$precipitation_on
-  use_lethal_temperature <- case_study$weather$lethal_temp_on
+  config <- c()
+  config$random_seed <- random_seed
+  # set up host data and initial infected conditions data
+  config$infected_file <- infected_file
+  config$host_file <- host_file
+  config$total_populations_file <- total_populations_file
+  config$parameter_means <- parameter_means
+  config$parameter_cov_matrix <- parameter_cov_matrix
+  # set up temperature and precipitation data
+  config$temp <- case_study$weather$temp_on
+  config$temperature_coefficient_file <- temperature_coefficient_file
+  config$precip <- case_study$weather$precipitation_on
+  config$precipitation_coefficient_file <- precipitation_coefficient_file
+  # determine model type and latency period if SEI
+  config$model_type <- model_type
+  config$latency_period <- latency_period
+  # set up model timing variables
+  config$time_step <- case_study$time_step
   if (case_study$weather$seasonality_on) {
-    season_month_start <- case_study$weather$seasonality$first_month 
-    season_month_end <- case_study$weather$seasonality$last_month 
+    config$season_month_start <- case_study$weather$seasonality$first_month 
+    config$season_month_end <- case_study$weather$seasonality$last_month 
   } else {
-    season_month_start <- 1
-    season_month_end <- 12
+    config$season_month_start <- 1
+    config$season_month_end <- 12
   }
-  
-  time_step <- case_study$time_step
+  config$start_date <- start_date
+  config$end_date <- end_date
+  ## from old setup
   start_time <- case_study$end_year + 1
   end_time <- case_study$future_years
-  natural_kernel_type <- case_study$pest_set[[1]]$natural_dispersal_type
-  anthropogenic_kernel_type <- case_study$pest_set[[1]]$anthropogenic_dispersal_type
+  # Set up lethal temperature
+  config$use_lethal_temperature <- case_study$weather$lethal_temp_on
   
-  if (natural_kernel_type == "CAUCHY") {
-    natural_kernel_type <- "cauchy"
-  } else if (natural_kernel_type == "EXPONENTIAL") {
-    natural_kernel_type <- "exponential"
-  }
-  
-  if (anthropogenic_kernel_type == "CAUCHY") {
-    anthropogenic_kernel_type <- "cauchy"
-  } else if (anthropogenic_kernel_type == "EXPONENTIAL") {
-    anthropogenic_kernel_type <- "exponential"
-  }
-  
-  if (use_lethal_temperature) {
-    lethal_temperature <- as.numeric(case_study$weather$lethaltemperature$value)
-    lethal_temperature_month <- case_study$weather$lethaltemperature$month
+  if (config$use_lethal_temperature) {
+    config$lethal_temperature <- as.numeric(case_study$weather$lethaltemperature$value)
+    config$lethal_temperature_month <- case_study$weather$lethaltemperature$month
   } else {
-    lethal_temperature <- -20
-    lethal_temperature_month <- 1
+    config$lethal_temperature <- -20
+    config$lethal_temperature_month <- 1
+  }
+  config$temperature_file <- temperature_file
+  
+  # set up mortality
+  config$mortality_on <- case_study$host_set[[1]]$mortality_on
+  if (!config$mortality_on) {
+    config$mortality_rate <- 0
+    config$mortality_time_lag <- 0
+  } else {
+    config$mortality_rate <- as.numeric(case_study$host_set[[1]]$mortality$rate) 
+    config$mortality_time_lag <- case_study$host_set[[1]]$mortality$time_lag 
+  }
+  # set up management variables
+  config$management <- FALSE
+  config$treatment_dates <- c(0)
+  config$treatments_file <- ""
+  config$treatment_method <- "ratio"
+  ## still need to add in check for treatment and treatment files (probably 
+  ## something that isn't needed)
+  
+  # Setup dispersal parameters
+  config$natural_kernel_type <- case_study$pest_set[[1]]$natural_dispersal_type
+  config$anthropogenic_kernel_type <- 
+    case_study$pest_set[[1]]$anthropogenic_dispersal_type
+  if (config$natural_kernel_type == "CAUCHY") {
+    config$natural_kernel_type <- "cauchy"
+  } else if (config$natural_kernel_type == "EXPONENTIAL") {
+    config$natural_kernel_type <- "exponential"
   }
   
+  if (config$anthropogenic_kernel_type == "CAUCHY") {
+    config$anthropogenic_kernel_type <- "cauchy"
+  } else if (config$anthropogenic_kernel_type == "EXPONENTIAL") {
+    config$anthropogenic_kernel_type <- "exponential"
+  }
   
   if (case_study$weather$wind_on == FALSE) {
-    natural_dir <- "NONE"
-    natural_kappa <- 0
+    config$natural_dir <- "NONE"
+    config$natural_kappa <- 0
   } else {
-    natural_dir <- case_study$weather$wind$wind_direction
-    natural_kappa <- case_study$weather$wind$kappa
+    config$natural_dir <- case_study$weather$wind$wind_direction
+    config$natural_kappa <- case_study$weather$wind$kappa
   }
+  if (length(case_study$pest_set[[1]]$anthropogenicdistance_set) == 0) {
+    config$anthropogenic_dir <- "NONE"
+    config$anthropogenic_kappa <- 0
+  } else {
+    config$anthropogenic_dir <- case_study$weather$wind
+    config$anthropogenic_kappa <- case_study$weather$wind
+  }
+  # set up pesticide duration and efficacy if used
+  config$pesticide_duration <- pesticide_duration
+  config$pesticide_efficacy <- pesticide_efficacy
+  # set output frequency
+  config$output_frequency <- output_frequency
+  config$output_frequency_n <- output_frequency_n
+  # read in movement variables
+  config$movements_file <- movements_file
+  config$use_movements <- use_movements
+  
+  # determine if model should have the populations start off exposed
+  config$start_exposed <- start_exposed
+  # determine whether or not to use stochasticity
+  config$generate_stochasticity <- generate_stochasticity
+  config$establishment_stochasticity <- establishment_stochasticity
+  config$movement_stochasticity <- movement_stochasticity
+  config$deterministic <- deterministic
+  config$establishment_probability <- establishment_probability
+  config$dispersal_percentage <- dispersal_percentage
+  # set up quarantine and spreadrates
+  config$quarantine_areas_file <- quarantine_areas_file
+  config$use_quarantine <- use_quarantine
+  config$use_spreadrates <- use_spreadrates
+  # setup parallel processing
+  config$number_of_iterations <- 10
+  config$number_of_cores <- 10
+  # add function name for use in configuration function to skip
+  # function specific specifc configurations namely for validation and
+  # calibration.
+  config$function_name <- "multirun"
+  config$failure <- NULL
+  
+  
+  config <- configuration(config)
+  
   
   ## still need to add in check for anthropogenic distance set once one exists
-  if (length(case_study$pest_set[[1]]$anthropogenicdistance_set) == 0) {
-    anthropogenic_dir <- "NONE"
-    anthropogenic_kappa <- 0
-  } else {
-    anthropogenic_dir <- case_study$weather$wind
-    anthropogenic_kappa <- case_study$weather$wind
-  }
+  
   
   percent_natural_dispersal <- 1.0
   anthropogenic_distance_scale <- 0.0
   
-  ## still need to add in check for treatment and treatment files (probably something that isn't needed)
-  treatments_file <- ""
-  treatment_years <- c(0)
-  management <- FALSE
-  treatment_month <- 5
-  treatment_method <- "ratio"
-  
-  mortality_on <- case_study$host_set[[1]]$mortality_on
-  if (case_study$host_set[[1]]$mortality_on == FALSE) {
-    mortality_rate <- 0
-    mortality_time_lag <- 0
-  } else {
-    mortality_rate <- as.numeric(case_study$host_set[[1]]$mortality$rate) 
-    mortality_time_lag <- case_study$host_set[[1]]$mortality$time_lag 
-  }
   
   if (time_step == "week") {
     number_of_time_steps <- (end_time-start_time+1)*52
@@ -373,7 +432,8 @@ case_studey_setup <- function(case_study_id) {
   
   data <- PoPS::pops_model(random_seed = random_seed, 
                            use_lethal_temperature = use_lethal_temperature, 
-                           lethal_temperature = lethal_temperature, lethal_temperature_month = lethal_temperature_month,
+                           lethal_temperature = lethal_temperature, 
+                           lethal_temperature_month = lethal_temperature_month,
                            infected = infected,
                            susceptible = susceptible,
                            total_plants = total_plants,
@@ -432,10 +492,6 @@ case_studey_setup <- function(case_study_id) {
   ## save to dashboard project bucket
   gcs_save_image(file = paste("casestudy", case_study_id, ".Rdata", sep = ""), bucket = "test_pops_staging")
   googleCloudStorageR::gcs_load(file = paste("casestudy", case_study_id, ".Rdata", sep = ""), bucket = "test_pops_staging")
-  # gcs_load(file = ".Rdata", bucket = "testers-pops")
-  
-  
 }
-# case_study_id = "3"
 
 
