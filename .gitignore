@@ -2,6 +2,8 @@
 .Rhistory
 .RData
 .Ruserdata
+*.json
+
 deploy_production/app.yaml
 deploy_production/auth_production.json
 
