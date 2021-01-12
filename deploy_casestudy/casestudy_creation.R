@@ -27,15 +27,23 @@ library(parallel)
 case_studey_setup <- function(case_study_id) {
   
   case_study_id <- as.numeric(case_study_id)
-  json_case_study <- httr::GET(paste("https://popsmodel.org/api/case_study/", case_study_id ,"/?format=json", sep = ""))
+  # json_case_study <- httr::GET(paste("https://popsmodel.org/api/case_study/", case_study_id ,"/?format=json", sep = ""))
+  json_case_study <- httr::GET(paste("http://127.0.0.1/api/case_study/", case_study_id ,"/?format=json", sep = ""))
+  
   
   case_study <- httr::content(json_case_study)
   
   config <- c()
   random_seed <- round(stats::runif(1, 1, 1000000))
   config$random_seed <- random_seed
+  
+  for (i in seq_len(length(case_study$pest_set))) {
+    
+  }
+  
+  
   # set up host data and initial infected conditions data
-  config$infected_file <- infected_file
+  config$infected_file <- case_study$pest_set[[1]]$infestation
   config$host_file <- host_file
   config$total_populations_file <- total_populations_file
   config$parameter_means <- parameter_means
@@ -46,10 +54,16 @@ case_studey_setup <- function(case_study_id) {
   config$precip <- case_study$weather$precipitation_on
   config$precipitation_coefficient_file <- precipitation_coefficient_file
   # determine model type and latency period if SEI
-  config$model_type <- model_type
-  config$latency_period <- latency_period
+  config$model_type <- case_study$pest_set[[1]]$model_type
+  if (config$model_type == 'SI') {
+    config$latency_period <- 0
+  } else {
+    config$latency_period <- case_study$pest_set[[1]]$latencyperiod
+  }
+  
   # set up model timing variables
-  config$time_step <- case_study$time_step
+  config$time_step <- case_study$time_step_unit
+  config$time_step_n <- case_study$time_step_n
   if (case_study$weather$seasonality_on) {
     config$season_month_start <- case_study$weather$seasonality$first_month 
     config$season_month_end <- case_study$weather$seasonality$last_month 
@@ -57,8 +71,8 @@ case_studey_setup <- function(case_study_id) {
     config$season_month_start <- 1
     config$season_month_end <- 12
   }
-  config$start_date <- case_study$start_date
-  config$end_date <- case_study$end_date
+  config$start_date <- case_study$first_forecast_date
+  config$end_date <- case_study$last_forecast_date
   ## from old setup
   start_time <- case_study$end_year + 1
   end_time <- case_study$future_years
@@ -84,7 +98,16 @@ case_studey_setup <- function(case_study_id) {
     config$mortality_time_lag <- case_study$host_set[[1]]$mortality$time_lag 
   }
   # set up management variables
-  config$management <- FALSE
+  config$management <- case_study$pest_set[[1]]$use_treatment
+  if (config$management) {
+    config$treatment_dates <- c(0)
+    config$treatments_file <- case_study$pest_set[[1]]$priortreatment
+    config$treatment_method <- "ratio"
+  } else {
+    config$treatment_dates <- c(0)
+    config$treatments_file <- ""
+    config$treatment_method <- "ratio"
+  }
   config$treatment_dates <- c(0)
   config$treatments_file <- ""
   config$treatment_method <- "ratio"
@@ -125,24 +148,34 @@ case_studey_setup <- function(case_study_id) {
   config$pesticide_duration <- pesticide_duration
   config$pesticide_efficacy <- pesticide_efficacy
   # set output frequency
-  config$output_frequency <- output_frequency
-  config$output_frequency_n <- output_frequency_n
+  config$output_frequency <- case_study$output_frequency_unit
+  config$output_frequency_n <- case_study$output_frequency_n
   # read in movement variables
-  config$movements_file <- movements_file
-  config$use_movements <- use_movements
+  
+  config$use_movements <- case_study$use_movements
+  if (config$use_movements) {
+    config$movements_file <- movements_file
+  } else {
+    config$movements_file <- ""
+  }
   
   # determine if model should have the populations start off exposed
-  config$start_exposed <- start_exposed
+  config$start_exposed <- case_study$start_exposed
   # determine whether or not to use stochasticity
-  config$generate_stochasticity <- generate_stochasticity
-  config$establishment_stochasticity <- establishment_stochasticity
-  config$movement_stochasticity <- movement_stochasticity
-  config$deterministic <- deterministic
-  config$establishment_probability <- establishment_probability
-  config$dispersal_percentage <- dispersal_percentage
+  config$generate_stochasticity <- TRUE
+  config$establishment_stochasticity <- TRUE
+  config$movement_stochasticity <- TRUE
+  config$deterministic <- FALSE
+  config$establishment_probability <- 0.5
+  config$dispersal_percentage <- 0.99
   # set up quarantine and spreadrates
-  config$quarantine_areas_file <- quarantine_areas_file
-  config$use_quarantine <- use_quarantine
+  
+  config$use_quarantine <- case_study$pest_set[[1]]$use_quarantine
+  if (config$use_quarantine) {
+    config$quarantine_areas_file <- quarantine_areas_file
+  } else {
+    config$quarantine_areas_file <- ""
+  }
   config$use_spreadrates <- use_spreadrates
   # setup parallel processing
   config$number_of_iterations <- 10
@@ -155,7 +188,7 @@ case_studey_setup <- function(case_study_id) {
   
   config <- configuration(config)
   
-
+  
   flyio_set_datasource("gcs")
   flyio_set_bucket("test_pops_staging")
   # flyio_set_bucket("pops_data_test")
