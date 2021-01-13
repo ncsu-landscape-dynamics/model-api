@@ -1,9 +1,5 @@
 # devtools::install_github("ncsu-landscape-dynamics/rpops", ref = "feature/spread_rate")
-
-library(readr)                ##
-# library(flyio)
-# gcs auto authenticated via environment file
-# pointed to via sys.env GCS_AUTH_FILE
+library(readr)
 library(PoPS)
 library(httr)
 library(geojsonio)
@@ -38,11 +34,19 @@ case_studey_setup <- function(case_study_id) {
   }
   
   # set up host data and initial infected conditions data
-  config$infected_file <- case_study$pest_set[[1]]$infestation
-  config$host_file <- host_file
-  config$total_populations_file <- total_populations_file
-  config$parameter_means <- parameter_means
-  config$parameter_cov_matrix <- parameter_cov_matrix
+  config$infected_file <- case_study$pest_set[[1]]$infestation$user_file
+  config$infected_file <- 
+    stringr::str_split(config$infected_file, pattern = ".com/")[[1]][2]
+  config$host_file <- 
+    case_study$pest_set[[1]]$pesthostinteraction_set[[1]]$clippedhostlocation$raster_map
+  config$host_file <- 
+    stringr::str_split(config$host_file, pattern = ".com/")[[1]][2]
+  config$total_populations_file <- case_study$allpopulationsdata$user_file
+  config$total_populations_file <- 
+    stringr::str_split(config$total_populations_file, pattern = ".com/")[[1]][2]
+  config$parameter_means <- unlist(case_study$pest_set[[1]]$parameters$means)
+  config$parameter_cov_matrix <- 
+    matrix(unlist(case_study$pest_set[[1]]$parameters$covariance_matrix), nrow = 6, ncol = 6)
   # set up temperature and precipitation data
   config$temp <- case_study$weather$temp_on
   config$temperature_coefficient_file <- temperature_coefficient_file
@@ -84,14 +88,18 @@ case_studey_setup <- function(case_study_id) {
   config$temperature_file <- case_study$weather$temperature_file
   
   # set up mortality
-  config$mortality_on <- case_study$host_set[[1]]$mortality_on
+  config$mortality_on <- 
+    case_study$pest_set[[1]]$pesthostinteraction_set[[1]]$mortality_on
   if (!config$mortality_on) {
     config$mortality_rate <- 0
     config$mortality_time_lag <- 0
   } else {
-    config$mortality_rate <- as.numeric(case_study$host_set[[1]]$mortality$rate) 
-    config$mortality_time_lag <- case_study$host_set[[1]]$mortality$time_lag 
+    config$mortality_rate <- 
+      as.numeric(case_study$pest_set[[1]]$pesthostinteraction_set[[1]]$mortality$rate) 
+    config$mortality_time_lag <- 
+      case_study$pest_set[[1]]$pesthostinteraction_set[[1]]$mortality$time_lag 
   }
+  
   # set up management variables
   config$management <- case_study$pest_set[[1]]$use_treatment
   if (config$management) {
@@ -167,7 +175,7 @@ case_studey_setup <- function(case_study_id) {
   
   config$use_quarantine <- case_study$pest_set[[1]]$use_quarantine
   if (config$use_quarantine) {
-    config$quarantine_areas_file <- quarantine_areas_file
+    config$quarantine_areas_file <- case_study$pest_set[[1]]$quarantinelink_set
   } else {
     config$quarantine_areas_file <- ""
   }
@@ -183,10 +191,6 @@ case_studey_setup <- function(case_study_id) {
   
   config <- configuration(config)
   
-  
-  flyio_set_datasource("gcs")
-  flyio_set_bucket("test_pops_staging")
-  # flyio_set_bucket("pops_data_test")
   
   ## For SLF
   # infected <- import_raster(file = "initial_infections_2018_single_count_pm_prop.tif", FUN = raster)
@@ -537,14 +541,9 @@ case_studey_setup <- function(case_study_id) {
   rm(high_weather_coefficient)
   rm(avg_weather_coefficient)
   
-  natural_kernel_type = "exponential"
-  
-  # ## Save to model api bucket
-  # gcs_save_image(file = paste("casestudy", case_study_id, ".Rdata", sep = ""), bucket = "pops_data_test")
-  # googleCloudStorageR::gcs_load(file = paste("casestudy", case_study_id, ".Rdata", sep = ""), bucket = "pops_data_test")
-  end_time <- 2023
   
   ## save to dashboard project bucket
+  case_study$r_data
   gcs_save_image(file = paste("casestudy", case_study_id, ".Rdata", sep = ""), bucket = "test_pops_staging")
   googleCloudStorageR::gcs_load(file = paste("casestudy", case_study_id, ".Rdata", sep = ""), bucket = "test_pops_staging")
 }
