@@ -25,11 +25,11 @@ modelapi <- function(case_study_id, session_id, run_collection_id, run_id) {
   options(digits = 6)
   run_id <- as.numeric(run_id)
   # json_run <- httr::GET(paste("https://pops-model.org/api/run/", run_id, "/?format=json", sep = ""))
-  json_run <- httr::GET(paste("http://127.0.0.1/api/run_detail/", run_id, "/?format=json", sep = ""))
+  json_run <- httr::GET(paste("http://127.0.0.1/api/run/", run_id, "/?format=json", sep = ""))
   run <- httr::content(json_run)
   run$status <- "READING DATA"
   # httr::PUT(url = paste("https://pops-model.org/api/run/", run_id, "/", sep = ""), body = run, encode = "json")
-  httr::PUT(url = paste("http://127.0.0.1/api/run_detail/", run_id, "/", sep = ""), body = run, encode = "json")
+  httr::PUT(url = paste("http://127.0.0.1/api/run/", run_id, "/", sep = ""), body = run, encode = "json")
   case_study_id <- as.numeric(case_study_id)
   session_id <- as.numeric(session_id)
   run_collection_id <- as.numeric(run_collection_id)
