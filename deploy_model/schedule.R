@@ -1,10 +1,3 @@
-# Sys.setenv("GCS_AUTH_FILE" = "deploy_staging_test/auth2.json")
-library(googleAuthR)         ## authentication
-library(googleCloudStorageR)  ## google cloud storage
-library(readr)                ##
-library(flyio)
-# gcs auto authenticated via environment file
-# pointed to via sys.env GCS_AUTH_FILE
 library(PoPS)
 library(httr)
 library(geojsonio)
@@ -18,6 +11,7 @@ library(devtools)
 library(doParallel)
 library(foreach)
 library(parallel)
+library(aws.s3)
 
 #' Plot out data from the iris dataset
 #' 
@@ -28,25 +22,28 @@ library(parallel)
 #' @get /status
 modelapi <- function(case_study_id, session_id, run_collection_id, run_id) {
   
-  flyio::flyio_set_datasource("gcs")
-  flyio::flyio_auth(auth_list = c("GCS_AUTH_FILE"))
-  flyio::flyio_set_bucket("test_pops_staging")
-  
   options(digits = 6)
   run_id <- as.numeric(run_id)
-  json_run <- httr::GET(paste("https://pops-model.org/api/run/", run_id, "/?format=json", sep = ""))
+  # json_run <- httr::GET(paste("https://pops-model.org/api/run/", run_id, "/?format=json", sep = ""))
+  json_run <- httr::GET(paste("http://127.0.0.1/api/case_study/", run_id, "/?format=json", sep = ""))
   run <- httr::content(json_run)
   run$status <- "READING DATA"
-  httr::PUT(url = paste("https://pops-model.org/api/run/", run_id, "/", sep = ""), body = run, encode = "json")
+  # httr::PUT(url = paste("https://pops-model.org/api/run/", run_id, "/", sep = ""), body = run, encode = "json")
+  httr::PUT(url = paste("http://127.0.0.1/api/run/", run_id, "/", sep = ""), body = run, encode = "json")
   case_study_id <- as.numeric(case_study_id)
   session_id <- as.numeric(session_id)
   run_collection_id <- as.numeric(run_collection_id)
-  json_run_collection <- httr::GET(paste("https://pops-model.org/api/run_collection/", run_collection_id, "/?format=json", sep = ""))
+  # json_run_collection <- httr::GET(paste("https://pops-model.org/api/run_collection/", run_collection_id, "/?format=json", sep = ""))
+  json_run_collection <- httr::GET(paste("http://127.0.0.1/api/run_collection//", run_collection_id, "/?format=json", sep = ""))
   run_collection <- httr::content(json_run_collection)
-  json_session <- httr::GET(paste("https://pops-model.org/api/session/", session_id, "/?format=json", sep = ""))
+  # json_session <- httr::GET(paste("https://pops-model.org/api/session/", session_id, "/?format=json", sep = ""))
+  json_session <- httr::GET(paste("http://127.0.0.1/api/session/", session_id, "/?format=json", sep = ""))
   session <- httr::content(json_session)
+  
+  ### this needs to change to the S3 bucket
   googleCloudStorageR::gcs_load(file = paste("casestudy", case_study_id, ".Rdata", sep = ""), bucket = "test_pops_staging")
-  end_time <- session$final_year
+  
+  end_time <- session$final_date
   natural_distance_scale <- as.numeric(session$distance_scale)
   reproductive_rate <- as.numeric(session$reproductive_rate)
   efficacy = run_collection$efficacy
@@ -160,7 +157,7 @@ modelapi <- function(case_study_id, session_id, run_collection_id, run_id) {
     
     comp_years <- raster::stack(lapply(1:length(data$infected_before_treatment), function(i) host))
     susceptible_runs <- raster::stack(lapply(1:length(data$infected_before_treatment), function(i) host))
- 
+    
     for (q in 1:raster::nlayers(comp_years)) {
       comp_years[[q]] <- data$infected[[q]]
       susceptible_runs[[q]] <- data$susceptible[[q]]
@@ -240,7 +237,7 @@ modelapi <- function(case_study_id, session_id, run_collection_id, run_id) {
   flyio::flyio_auth(auth_list = c("GCS_AUTH_FILE"))
   flyio::export_raster(x = single_run_out, file = paste("infected_", case_study_id , "_", run_id ,".tif", sep = ""), data_source = "gcs", bucket = "test_pops_staging")
   flyio::export_raster(x = susceptible_run_out, file = paste("susceptible_", case_study_id , "_", run_id ,".tif", sep = ""), data_source = "gcs", bucket = "test_pops_staging", overwrite = TRUE)
-
+  
   # core_count <- 10
   cl <- makeCluster(core_count)
   registerDoParallel(cl)
@@ -357,7 +354,7 @@ modelapi <- function(case_study_id, session_id, run_collection_id, run_id) {
     }
     stuff <- run$status
   }
-
+  
   stopCluster(cl)
   run$status <- stuff[[1]]
   

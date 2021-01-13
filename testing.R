@@ -34,3 +34,9 @@ output <- httr::content(json_output)
 post_code <- httr::POST(url = "https://pops-model.org/api/output/", body = output, encode = "json")
 code <- httr::content(post_code)
 output$run <- 1488
+
+
+case_study_id = "1"
+session_id = "1"
+run_collection_id = "1"
+run_id = "1"
