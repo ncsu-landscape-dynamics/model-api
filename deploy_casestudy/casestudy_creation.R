@@ -1,8 +1,5 @@
 # devtools::install_github("ncsu-landscape-dynamics/rpops", ref = "feature/spread_rate")
-# Sys.setenv("GCS_AUTH_FILE" = "deploy_staging/auth2.json")
-# # Sys.setenv("GCS_AUTH_FILE" = "deploy_staging_test/auth.json")
-# library(googleAuthR)         ## authentication
-# library(googleCloudStorageR)  ## google cloud storage
+
 library(readr)                ##
 # library(flyio)
 # gcs auto authenticated via environment file
@@ -20,7 +17,8 @@ library(devtools)
 library(doParallel)
 library(foreach)
 library(parallel)
-# library(flyio)
+library(aws.s3)
+
 
 ## 2 is SLF, 3 is SOD EU1, 5 is SOD NA1
 
@@ -29,8 +27,6 @@ case_studey_setup <- function(case_study_id) {
   case_study_id <- as.numeric(case_study_id)
   # json_case_study <- httr::GET(paste("https://popsmodel.org/api/case_study/", case_study_id ,"/?format=json", sep = ""))
   json_case_study <- httr::GET(paste("http://127.0.0.1/api/case_study/", case_study_id ,"/?format=json", sep = ""))
-  
-  
   case_study <- httr::content(json_case_study)
   
   config <- c()
@@ -40,7 +36,6 @@ case_studey_setup <- function(case_study_id) {
   for (i in seq_len(length(case_study$pest_set))) {
     
   }
-  
   
   # set up host data and initial infected conditions data
   config$infected_file <- case_study$pest_set[[1]]$infestation
@@ -176,12 +171,12 @@ case_studey_setup <- function(case_study_id) {
   } else {
     config$quarantine_areas_file <- ""
   }
-  config$use_spreadrates <- use_spreadrates
+  config$use_spreadrates <- case_study$use_spread_rate
   # setup parallel processing
   config$number_of_iterations <- 10
   config$number_of_cores <- 10
   # add function name for use in configuration function to skip
-  # function specific specifc configurations namely for validation and
+  # function specific configurations namely for validation and
   # calibration.
   config$function_name <- "multirun"
   config$failure <- NULL
@@ -421,10 +416,10 @@ case_studey_setup <- function(case_study_id) {
     return("Percent natural dispersal must be between 0.0 and 1.0")
   }
   
-  ew_res <- raster::xres(susceptible)
-  ns_res <- raster::yres(susceptible)
-  num_cols <- raster::ncol(susceptible)
-  num_rows <- raster::nrow(susceptible)
+  config$ew_res <- raster::xres(susceptible)
+  config$ns_res <- raster::yres(susceptible)
+  config$num_cols <- raster::ncol(susceptible)
+  config$num_rows <- raster::nrow(susceptible)
   
   mortality_tracker <- infected
   raster::values(mortality_tracker) <- 0
