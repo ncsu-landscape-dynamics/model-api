@@ -25,32 +25,33 @@ modelapi <- function(case_study_id, session_id, run_collection_id, run_id) {
   options(digits = 6)
   run_id <- as.numeric(run_id)
   # json_run <- httr::GET(paste("https://pops-model.org/api/run/", run_id, "/?format=json", sep = ""))
-  json_run <- httr::GET(paste("http://127.0.0.1/api/case_study/", run_id, "/?format=json", sep = ""))
+  json_run <- httr::GET(paste("http://127.0.0.1/api/run_detail/", run_id, "/?format=json", sep = ""))
   run <- httr::content(json_run)
   run$status <- "READING DATA"
   # httr::PUT(url = paste("https://pops-model.org/api/run/", run_id, "/", sep = ""), body = run, encode = "json")
-  httr::PUT(url = paste("http://127.0.0.1/api/run/", run_id, "/", sep = ""), body = run, encode = "json")
+  httr::PUT(url = paste("http://127.0.0.1/api/run_detail/", run_id, "/", sep = ""), body = run, encode = "json")
   case_study_id <- as.numeric(case_study_id)
   session_id <- as.numeric(session_id)
   run_collection_id <- as.numeric(run_collection_id)
   # json_run_collection <- httr::GET(paste("https://pops-model.org/api/run_collection/", run_collection_id, "/?format=json", sep = ""))
-  json_run_collection <- httr::GET(paste("http://127.0.0.1/api/run_collection//", run_collection_id, "/?format=json", sep = ""))
+  json_run_collection <- httr::GET(paste("http://127.0.0.1/api/run_collection/", run_collection_id, "/?format=json", sep = ""))
   run_collection <- httr::content(json_run_collection)
   # json_session <- httr::GET(paste("https://pops-model.org/api/session/", session_id, "/?format=json", sep = ""))
   json_session <- httr::GET(paste("http://127.0.0.1/api/session/", session_id, "/?format=json", sep = ""))
   session <- httr::content(json_session)
   
   ### this needs to change to the S3 bucket
-  googleCloudStorageR::gcs_load(file = paste("casestudy", case_study_id, ".Rdata", sep = ""), bucket = "test_pops_staging")
+  # googleCloudStorageR::gcs_load(file = paste("casestudy", case_study_id, ".Rdata", sep = ""), bucket = "test_pops_staging")
   
-  end_time <- session$final_date
+  config$end_date <- session$final_date
+  ### potentially ignore this
   natural_distance_scale <- as.numeric(session$distance_scale)
   reproductive_rate <- as.numeric(session$reproductive_rate)
+  ## need to pull this from the polygons now the data
   efficacy = run_collection$efficacy
   treatment_month <- session$management_month
   # susceptible_start <- susceptible
   # infected_start <- raster(infected, host)
-  
   if (is.null(run$management_polygons) || class(run$management_polygons) != "list") {
     treatments_file <- ""
     treatment_years <- c(0)
@@ -78,13 +79,6 @@ modelapi <- function(case_study_id, session_id, run_collection_id, run_id) {
     temperature <- temperature
   }
   
-  if (time_step == "week") {
-    steps_in_year <- 52
-  } else if (time_step == "month") {
-    steps_in_year <- 12
-  } else if (time_step == "day") {
-    steps_in_year <- 365
-  }
   
   if (!is.null(run$steering_year)) {
     
@@ -129,31 +123,76 @@ modelapi <- function(case_study_id, session_id, run_collection_id, run_id) {
   infected_stack <- foreach::foreach(i = 1:10, .combine = c, .packages = c("raster", "PoPS"), .export = ls(globalenv())) %dopar% {
     random_seed <- round(stats::runif(1, 1, 1000000))
     
-    data <- PoPS::pops_model(random_seed = random_seed, 
-                             use_lethal_temperature = use_lethal_temperature, 
-                             lethal_temperature = lethal_temperature, lethal_temperature_month = lethal_temperature_month,
-                             infected = infected,
-                             susceptible = susceptible,
-                             total_plants = total_plants,
-                             mortality_on = mortality_on,
-                             mortality_tracker = mortality_tracker,
-                             mortality = mortality,
-                             treatment_maps = treatment_maps,
-                             treatment_years = treatment_years,
-                             weather = weather,
-                             temperature = temperature,
-                             weather_coefficient = weather_coefficient,
-                             ew_res = ew_res, ns_res = ns_res, num_rows = num_rows, num_cols = num_cols,
-                             time_step = time_step, reproductive_rate = reproductive_rate,
-                             mortality_rate = mortality_rate, mortality_time_lag = mortality_time_lag,
-                             season_month_start = season_month_start, season_month_end = season_month_end,
-                             start_time = start_time, end_time = end_time,
-                             treatment_month = treatment_month, treatment_method = treatment_method,
-                             natural_kernel_type = natural_kernel_type, anthropogenic_kernel_type = anthropogenic_kernel_type, 
-                             use_anthropogenic_kernel = use_anthropogenic_kernel, percent_natural_dispersal = percent_natural_dispersal,
-                             natural_distance_scale = natural_distance_scale, anthropogenic_distance_scale = anthropogenic_distance_scale, 
-                             natural_dir = natural_dir, natural_kappa = natural_kappa,
-                             anthropogenic_dir = anthropogenic_dir, anthropogenic_kappa = anthropogenic_kappa)
+    data <- PoPS::pops_model(random_seed = config$random_seed, 
+                             use_lethal_temperature = config$use_lethal_temperature, 
+                             lethal_temperature = config$lethal_temperature, 
+                             lethal_temperature_month = config$lethal_temperature_month,
+                             infected = config$infected,
+                             exposed = config$exposed,
+                             susceptible = config$susceptible,
+                             total_populations  = config$total_populations,
+                             mortality_on = config$mortality_on,
+                             mortality_tracker = config$mortality_tracker,
+                             mortality = config$mortality,
+                             quarantine_areas = config$quarantine_areas,
+                             treatment_maps = config$treatment_maps,
+                             treatment_dates = config$treatment_dates,
+                             pesticide_duration = config$pesticide_duration,
+                             resistant = config$resistant,
+                             use_movements = config$use_movements,
+                             movements = config$movements,
+                             movements_dates = config$movements_dates,
+                             weather = config$weather,
+                             temperature = config$temperature,
+                             weather_coefficient = config$weather_coefficient,
+                             ew_res = config$ew_res,
+                             ns_res = config$ns_res,
+                             num_rows = config$num_rows,
+                             num_cols = config$num_cols,
+                             time_step = config$time_step,
+                             reproductive_rate = config$reproductive_rate,
+                             spatial_indices = config$spatial_indices,
+                             mortality_rate = config$mortality_rate,
+                             mortality_time_lag = config$mortality_time_lag,
+                             season_month_start = config$season_month_start,
+                             season_month_end = config$season_month_end,
+                             start_date = config$start_date,
+                             end_date = config$end_date,
+                             treatment_method = config$treatment_method,
+                             natural_kernel_type = config$natural_kernel_type,
+                             anthropogenic_kernel_type =
+                               config$anthropogenic_kernel_type,
+                             use_anthropogenic_kernel =
+                               config$use_anthropogenic_kernel,
+                             percent_natural_dispersal =
+                               config$percent_natural_dispersal,
+                             natural_distance_scale =
+                               config$natural_distance_scale,
+                             anthropogenic_distance_scale =
+                               config$anthropogenic_distance_scale,
+                             natural_dir = config$natural_dir,
+                             natural_kappa = config$natural_kappa,
+                             anthropogenic_dir = config$anthropogenic_dir,
+                             anthropogenic_kappa = config$anthropogenic_kappa,
+                             output_frequency = config$output_frequency,
+                             output_frequency_n = config$output_frequency_n,
+                             quarantine_frequency = config$quarantine_frequency,
+                             quarantine_frequency_n = config$quarantine_frequency_n,
+                             use_quarantine = config$use_quarantine,
+                             spreadrate_frequency = config$spreadrate_frequency,
+                             spreadrate_frequency_n = config$spreadrate_frequency_n,
+                             use_spreadrates = config$use_spreadrates,
+                             model_type_ = config$model_type,
+                             latency_period = config$latency_period,
+                             generate_stochasticity =
+                               config$generate_stochasticity,
+                             establishment_stochasticity =
+                               config$establishment_stochasticity,
+                             movement_stochasticity = config$movement_stochasticity,
+                             deterministic = config$deterministic,
+                             establishment_probability =
+                               config$establishment_probability,
+                             dispersal_percentage = config$dispersal_percentage)
     
     comp_years <- raster::stack(lapply(1:length(data$infected_before_treatment), function(i) host))
     susceptible_runs <- raster::stack(lapply(1:length(data$infected_before_treatment), function(i) host))
