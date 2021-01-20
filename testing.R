@@ -1,33 +1,3 @@
-case_study_id = "3"
-session_id = "99"
-run_collection_id = "741"
-run_id = "1095"
-
-case_study_id = "5"
-session_id = "99"
-run_collection_id = "734"
-run_id = "1094"
-
-
-set.seed(33)
-
-random_seeds <- sample(1:10000000, 10)
-random_seeds
-
-httr::DELETE("https://pops-model.org/api/output/941")
-
-
-case_study_id = "2"
-session_id = "46"
-run_collection_id = "350"
-run_id = "526"
-
-
-case_study_id = "2"
-run_id = "1488"
-run_collection_id = "925"
-session_id = "130"
-
 
 json_output<- httr::GET(paste("https://pops-model.org/api/output/", 158, "/?format=json", sep = ""))
 output <- httr::content(json_output)
@@ -35,8 +5,18 @@ post_code <- httr::POST(url = "https://pops-model.org/api/output/", body = outpu
 code <- httr::content(post_code)
 output$run <- 1488
 
-
+## run with management for parsing
 case_study_id = "1"
 session_id = "1"
-run_collection_id = "1"
-run_id = "1"
+run_collection_id = "5"
+run_id = "2"
+
+library(aws.s3)
+bucket = 'pops-production'
+
+t <- config$infected_file
+save_file = aws.s3::save_object(object = t, bucket = bucket, file = t, check_region = FALSE)
+result = raster::stack(t)
+
+save_object("s", object = t, bucket = 'pops-production')
+s <- raster("H:/Shared drives/Data/Raster/Regional/SLF_100m/tree_of_heaven_100m.tif")
