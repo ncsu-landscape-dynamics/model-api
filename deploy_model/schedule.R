@@ -12,6 +12,10 @@ library(doParallel)
 library(foreach)
 library(parallel)
 library(aws.s3)
+library(sf)
+library(fasterize)
+library(folderfun)
+# library(terra)
 
 #' Plot out data from the iris dataset
 #' 
@@ -22,53 +26,68 @@ library(aws.s3)
 #' @get /status
 modelapi <- function(case_study_id, session_id, run_collection_id, run_id) {
   
-  options(digits = 6)
+  # change api_url to access either dev, staging, or production Database API.
+  # api_url <- "https://popsmodel.org/api/"
+  api_url <- "http://127.0.0.1:8000/api/"
   run_id <- as.numeric(run_id)
-  # json_run <- httr::GET(paste("https://pops-model.org/api/run/", run_id, "/?format=json", sep = ""))
-  json_run <- httr::GET(paste("http://127.0.0.1/api/run/", run_id, "/?format=json", sep = ""))
+  json_run <- httr::GET(paste(api_url, "run/", run_id, "/?format=json", sep = ""))
   run <- httr::content(json_run)
   run$status <- "READING DATA"
-  # httr::PUT(url = paste("https://pops-model.org/api/run/", run_id, "/", sep = ""), body = run, encode = "json")
-  httr::PUT(url = paste("http://127.0.0.1/api/run/", run_id, "/", sep = ""), body = run, encode = "json")
+  httr::PUT(url = paste(api_url, "run/", run_id, "/", sep = ""), body = run, encode = "json")
   case_study_id <- as.numeric(case_study_id)
   session_id <- as.numeric(session_id)
   run_collection_id <- as.numeric(run_collection_id)
-  # json_run_collection <- httr::GET(paste("https://pops-model.org/api/run_collection/", run_collection_id, "/?format=json", sep = ""))
-  json_run_collection <- httr::GET(paste("http://127.0.0.1/api/run_collection/", run_collection_id, "/?format=json", sep = ""))
+  json_run_collection <- httr::GET(paste(api_url, "run_collection/", run_collection_id, "/?format=json", sep = ""))
   run_collection <- httr::content(json_run_collection)
-  # json_session <- httr::GET(paste("https://pops-model.org/api/session/", session_id, "/?format=json", sep = ""))
-  json_session <- httr::GET(paste("http://127.0.0.1/api/session/", session_id, "/?format=json", sep = ""))
+  json_session <- httr::GET(paste(api_url, "session/", session_id, "/?format=json", sep = ""))
   session <- httr::content(json_session)
   
-  ### this needs to change to the S3 bucket
-  # googleCloudStorageR::gcs_load(file = paste("casestudy", case_study_id, ".Rdata", sep = ""), bucket = "test_pops_staging")
+  ## needs to be removed once case study is available
+  config <- c()
+  setff("out", "H:/Shared drives/Data/Raster/Regional/SLF_100m/") # didn't inlcude writing of any outputs but this is the set up I use for that.
+  config$host <- raster(ffout("tree_of_heaven_100m.tif"))
+  
+
   
   config$end_date <- session$final_date
   ### potentially ignore this
-  natural_distance_scale <- as.numeric(session$distance_scale)
-  reproductive_rate <- as.numeric(session$reproductive_rate)
+  # natural_distance_scale <- as.numeric(session$distance_scale)
+  # reproductive_rate <- as.numeric(session$reproductive_rate)
+  
   ## need to pull this from the polygons now the data
-  efficacy = run_collection$efficacy
-  treatment_month <- session$management_month
-  # susceptible_start <- susceptible
-  # infected_start <- raster(infected, host)
   if (is.null(run$management_polygons) || class(run$management_polygons) != "list") {
-    treatments_file <- ""
-    treatment_years <- c(0)
-    management <- FALSE
+    config$treatment_dates <- c(0)
+    config$pesticide_duration <- c()
+    config$management <- FALSE
+    
   } else if (length(run$management_polygons) >= 1) {
+    management <- TRUE
     treatments_file <- run$management_polygons
     treatments <- geojsonio::as.json(treatments_file)
-    treatments <- geojson::as.geojson(treatments)
-    treatments <- geojsonio::geojson_sp(treatments)
-    treatments <- spTransform(treatments, CRS = crs(host))
-    treatment_map <- raster::rasterize(treatments, host, fun = "last", getCover = TRUE)
-    # treatment_map[treatment_map > 1] <- 1 ## rasterize gives rasters in each polygon the polygon id value need to set those to 1
-    treatment_map[is.na(treatment_map)] <- 0
-    treatment_map <- treatment_map * (efficacy / 100)
-    treatment_maps <- list(raster::as.matrix(treatment_map))
-    treatment_years <- c(run$steering_year)
-    management <- TRUE
+    treatments <- st_read(treatments)
+    treatments <- st_transform(treatments, crs = crs(config$host))
+    treatments_table <- data.frame(treatments[, c("efficacy", "duration", "date")])
+    treatments_table <- treatments_table[, c("efficacy", "duration", "date")]
+    unique_treatments <- unique(treatments_table)
+    pesticide_efficacy <- c()
+    pesticide_duration <- c()
+    treatment_maps <- c()
+    treatment_dates <- c()
+    for (i in seq_len(nrow(unique_treatments))) {
+      current_treatments <- 
+        treatments[treatments$date == unique_treatments$date[i] & 
+                     treatments$duration == unique_treatments$duration[i] &
+                     treatments$efficacy == unique_treatments$efficacy[i], ]
+      treatment_map <- fasterize::fasterize(current_treatments, config$host, fun = "last")
+      treatment_map[is.na(treatment_map)] <- 0
+      treatment_map <- treatment_map * as.numeric(unique_treatments$efficacy[i])
+      treatment_map <- raster::as.matrix(treatment_map)
+      pesticide_duration <- c(pesticide_duration, unique_treatments$duration[i])
+      pesticide_efficacy <- c(pesticide_efficacy, unique_treatments$efficacy[i])
+      treatment_dates <- c(treatment_dates, unique_treatments$date)
+      treatment_maps <- c(treatment_maps, treatment_map)
+    }
+    
   }
   
   if (session$weather == "GOOD") {
@@ -82,7 +101,8 @@ modelapi <- function(case_study_id, session_id, run_collection_id, run_id) {
   
   if (!is.null(run$steering_year)) {
     
-    if (run$steering_year > start_time) {
+    if (run$steering_year > lubridate::year(config$start_date)) {
+      ## need to chat through best why to do this with Shannon
       infected_r <- flyio::import_raster(file = paste("infected_", case_study_id, "_", run_collection$second_most_recent_run, ".tif", sep = ""), data_source = "gcs", bucket = "test_pops_staging")
       susceptible_r <- flyio::import_raster(file = paste("susceptible_", case_study_id, "_", run_collection$second_most_recent_run,".tif", sep = ""), data_source = "gcs", bucket = "test_pops_staging")
       infected <- raster::as.matrix(infected_r)
@@ -96,16 +116,17 @@ modelapi <- function(case_study_id, session_id, run_collection_id, run_id) {
       if (is.null(run$management_polygons) || class(run$management_polygons) != "list") {
         
       } else {
-        run$management_cost <- round(sum(treatment_map[treatment_map > 0 & (host > 0)]) * xres(treatment_map) * yres(treatment_map) * as.numeric(run_collection$cost_per_meter_squared), digits = 2)
+        run$management_cost <- round(sum(treatment_map[treatment_map > 0 & (config$host > 0)]) * xres(treatment_map) * yres(treatment_map) * as.numeric(run_collection$cost_per_meter_squared), digits = 2)
       }
     }
     
-    years_difference <- run$steering_year - start_time
-    start_time <- run$steering_year
+    years_difference <- run$steering_year - config$start_date
+    config$start_date <- paste(run$steering_year, "-01-01", sep = "")
     years_move <- years_difference + 1
-    if (use_lethal_temperature) {
+    if (config$use_lethal_temperature) {
       temperature <- temperature[years_move:length(temperature)]
     }
+    steps_in_year <- config$number_of_time_steps / config$number_of_years
     time_step_move <- years_difference * steps_in_year + 1
     weather_coefficient <- weather_coefficient[time_step_move:length(weather_coefficient)]
   }
@@ -115,7 +136,7 @@ modelapi <- function(case_study_id, session_id, run_collection_id, run_id) {
   registerDoParallel(cl)
   
   run$status <- "RUNNING MODEL"
-  httr::PUT(url = paste("https://pops-model.org/api/run/", run_id, "/", sep = ""), body = run, encode = "json")
+  httr::PUT(url = paste(api_url, "run/", run_id, "/", sep = ""), body = run, encode = "json")
   years <- seq(start_time, end_time, 1)
   rcl <- c(1, Inf, 1, 0, 0.99, NA)
   rclmat <- matrix(rcl, ncol=3, byrow=TRUE)
@@ -194,8 +215,8 @@ modelapi <- function(case_study_id, session_id, run_collection_id, run_id) {
                                config$establishment_probability,
                              dispersal_percentage = config$dispersal_percentage)
     
-    comp_years <- raster::stack(lapply(1:length(data$infected_before_treatment), function(i) host))
-    susceptible_runs <- raster::stack(lapply(1:length(data$infected_before_treatment), function(i) host))
+    comp_years <- raster::stack(lapply(1:length(data$infected_before_treatment), function(i) config$host))
+    susceptible_runs <- raster::stack(lapply(1:length(data$infected_before_treatment), function(i) config$host))
     
     for (q in 1:raster::nlayers(comp_years)) {
       comp_years[[q]] <- data$infected[[q]]
@@ -260,13 +281,13 @@ modelapi <- function(case_study_id, session_id, run_collection_id, run_id) {
   susceptible_run <- susceptible_runs[[median_run_index]]
   
   run$status <- "WRITING DATA"
-  httr::PUT(url = paste("https://pops-model.org/api/run/", run_id, "/", sep = ""), body = run, encode = "json")
+  httr::PUT(url = paste(api_url, "run/", run_id, "/", sep = ""), body = run, encode = "json")
   
   if (run_id == session$default_run) {
     max_value <- round(sapply(max_values, function(x) c( "Mean"= mean(x,na.rm=TRUE),"Stand dev" = sd(x))), digits = 0)
     max_value_out <- max_value[1,ncol(max_value)]
     session$max_value <- max_value_out
-    httr::PUT(url = paste("https://pops-model.org/api/session/", session_id, "/", sep = ""), body = session, encode = "json")
+    httr::PUT(url = paste(api_url, "session/", session_id, "/", sep = ""), body = session, encode = "json")
     
   }
   
@@ -385,7 +406,7 @@ modelapi <- function(case_study_id, session_id, run_collection_id, run_id) {
     outs$timetoboundary <- timetoboundary
     outs$spreadrate <- spreadrate
     outs$distancetoboundary <- distancetoboundary
-    post_code <- httr::POST(url = "https://pops-model.org/api/output/", body = outs, encode = "json")
+    post_code <- httr::POST(url = paste(api_url, "output/",sep = ""), body = outs, encode = "json")
     if (post_code$status_code == 201) {
       run$status <- "SUCCESS"
     } else {
