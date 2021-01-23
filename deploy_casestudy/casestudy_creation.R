@@ -1,4 +1,4 @@
-devtools::install_github("ncsu-landscape-dynamics/rpops")
+# devtools::install_github("ncsu-landscape-dynamics/rpops")
 library(readr)
 library(PoPS)
 library(httr)
@@ -58,22 +58,33 @@ case_studey_setup <- function(case_study_id, bucket = "") {
   
   # set up temperature and precipitation data
   config$temp <- case_study$pest_set[[1]]$weather$temp_on
-  config$temperature_coefficient_file <- 
-    case_study$pest_set[[1]]$weather$temperature$temperature_data
-  config$temperature_coefficient_file <-
-    stringr::str_split(config$temperature_coefficient_file, pattern = ".com/")[[1]][2]
+  if (config$temp) {
+    config$temperature_coefficient_file <- 
+      case_study$pest_set[[1]]$weather$temperature$temperature_data
+    config$temperature_coefficient_file <-
+      stringr::str_split(config$temperature_coefficient_file, pattern = ".com/")[[1]][2]
+  } else {
+    config$temperature_coefficient_file <- ""
+  }
+
   config$precip <- case_study$pest_set[[1]]$weather$precipitation_on
-  config$precipitation_coefficient_file <- 
-    case_study$pest_set[[1]]$weather$precipitation$precipitation_data
-  config$precipitation_coefficient_file <- 
-    stringr::str_split(config$precipitation_coefficient_file, pattern = ".com/")[[1]][2]
+  if (config$precip) {
+    config$precipitation_coefficient_file <- 
+      case_study$pest_set[[1]]$weather$precipitation$precipitation_data
+    config$precipitation_coefficient_file <- 
+      stringr::str_split(config$precipitation_coefficient_file, pattern = ".com/")[[1]][2]
+  } else {
+    config$precipitation_coefficient_file <- ""
+  }
+
   
   # determine model type and latency period if SEI
   config$model_type <- case_study$pest_set[[1]]$model_type
   if (config$model_type == 'SI') {
     config$latency_period <- 0
   } else {
-    config$latency_period <- case_study$pest_set[[1]]$latencyperiod
+    config$latency_period <- 
+      mean(case_study$pest_set[[1]]$latencyperiod$minimum, case_study$pest_set[[1]]$latencyperiod$maximum)
   }
   
   # set up model timing variables
@@ -298,7 +309,6 @@ case_studey_setup <- function(case_study_id, bucket = "") {
   # weather_coefficient <- weather_coefficient[1:156]
   
   rm(data)
-  rm(i)
   rm(random_seed)
   rm(reproductive_rate)
   rm(natural_distance_scale)
