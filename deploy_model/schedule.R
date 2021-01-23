@@ -32,8 +32,18 @@ modelapi <- function(case_study_id, session_id, run_collection_id, run_id) {
   run_id <- as.numeric(run_id)
   json_run <- httr::GET(paste(api_url, "run/", run_id, "/?format=json", sep = ""))
   run <- httr::content(json_run)
+  run2 <- run[c(1:10,12)]
+  httr::PUT(url = paste(api_url, "run/", run_id, "/", sep = ""), body = run2, encode = "json")
+  
+  ## scratch
+  run3 <- run[c(1,11)]
+  run_cs <- upload_file("wsr_casestudy.RData")
   run$status <- "READING DATA"
-  httr::PUT(url = paste(api_url, "run/", run_id, "/", sep = ""), body = run, encode = "json")
+  run3$r_data <- run_cs
+  s <- httr::PUT(url = paste(api_url, "run/", run_id, "/", sep = ""), body = list(r_data = run_cs))
+  f <- httr::content(s)
+  # end
+  
   case_study_id <- as.numeric(case_study_id)
   session_id <- as.numeric(session_id)
   run_collection_id <- as.numeric(run_collection_id)
@@ -43,10 +53,14 @@ modelapi <- function(case_study_id, session_id, run_collection_id, run_id) {
   session <- httr::content(json_session)
   
   ## needs to be removed once case study is available
-  config <- c()
-  setff("out", "H:/Shared drives/Data/Raster/Regional/SLF_100m/") # didn't inlcude writing of any outputs but this is the set up I use for that.
-  config$host <- raster(ffout("tree_of_heaven_100m.tif"))
+  # config <- c()
+  # setff("out", "H:/Shared drives/Data/Raster/Regional/SLF_100m/") # didn't inlcude writing of any outputs but this is the set up I use for that.
+  # config$host <- raster(ffout("tree_of_heaven_100m.tif"))
   
+  ## Read in Rdata file
+  run_file <- run$r_data
+  run_file <-stringr::str_split(run_file, pattern = ".com/")[[1]][2]
+  s3load(object = run_file, bucket = 'pops-production')
 
   
   config$end_date <- session$final_date
@@ -56,8 +70,8 @@ modelapi <- function(case_study_id, session_id, run_collection_id, run_id) {
   
   ## need to pull this from the polygons now the data
   if (is.null(run$management_polygons) || class(run$management_polygons) != "list") {
-    config$treatment_dates <- c(0)
-    config$pesticide_duration <- c()
+    config$treatment_dates <- config$start_date
+    config$pesticide_duration <- c(0)
     config$management <- FALSE
     
   } else if (length(run$management_polygons) >= 1) {
@@ -73,6 +87,7 @@ modelapi <- function(case_study_id, session_id, run_collection_id, run_id) {
     pesticide_duration <- c()
     treatment_maps <- c()
     treatment_dates <- c()
+    management_costs <- 0
     for (i in seq_len(nrow(unique_treatments))) {
       current_treatments <- 
         treatments[treatments$date == unique_treatments$date[i] & 
@@ -82,45 +97,30 @@ modelapi <- function(case_study_id, session_id, run_collection_id, run_id) {
       treatment_map[is.na(treatment_map)] <- 0
       treatment_map <- treatment_map * as.numeric(unique_treatments$efficacy[i])
       treatment_map <- raster::as.matrix(treatment_map)
+      management_cost <- round(sum(treatment_map[treatment_map > 0 & (config$infected > 0 | config$susceptible > 0)]) * xres(treatment_map) * yres(treatment_map) * as.numeric(run_collection$cost_per_meter_squared), digits = 2)
       pesticide_duration <- c(pesticide_duration, unique_treatments$duration[i])
       pesticide_efficacy <- c(pesticide_efficacy, unique_treatments$efficacy[i])
       treatment_dates <- c(treatment_dates, unique_treatments$date)
       treatment_maps <- c(treatment_maps, treatment_map)
+      management_costs <- management_costs + management_cost
     }
     
   }
   
-  if (session$weather == "GOOD") {
-    temperature <- high_temperature
-  } else if (session$weather == "BAD") {
-    temperature <- low_temperature
-  } else {
-    temperature <- temperature
-  }
-  
-  
-  if (!is.null(run$steering_year)) {
-    
-    if (run$steering_year > lubridate::year(config$start_date)) {
-      ## need to chat through best why to do this with Shannon
-      infected_r <- flyio::import_raster(file = paste("infected_", case_study_id, "_", run_collection$second_most_recent_run, ".tif", sep = ""), data_source = "gcs", bucket = "test_pops_staging")
-      susceptible_r <- flyio::import_raster(file = paste("susceptible_", case_study_id, "_", run_collection$second_most_recent_run,".tif", sep = ""), data_source = "gcs", bucket = "test_pops_staging")
-      infected <- raster::as.matrix(infected_r)
-      susceptible <- raster::as.matrix(susceptible_r)
-      if (is.null(run$management_polygons) || class(run$management_polygons) != "list") {
-        
-      } else {
-        run$management_cost <- round(sum(treatment_map[treatment_map > 0 & (infected_r > 0 | susceptible_r > 0)]) * xres(treatment_map) * yres(treatment_map) * as.numeric(run_collection$cost_per_meter_squared), digits = 2)
-      }
+  ## set up if statement for this and weather
+  if (config$temp){
+    if (session$weather == "GOOD") {
+      temperature <- high_temperature
+    } else if (session$weather == "BAD") {
+      temperature <- low_temperature
     } else {
-      if (is.null(run$management_polygons) || class(run$management_polygons) != "list") {
-        
-      } else {
-        run$management_cost <- round(sum(treatment_map[treatment_map > 0 & (config$host > 0)]) * xres(treatment_map) * yres(treatment_map) * as.numeric(run_collection$cost_per_meter_squared), digits = 2)
-      }
+      temperature <- temperature
     }
-    
-    years_difference <- run$steering_year - config$start_date
+  } 
+
+  if (!is.null(run$steering_year)) {
+    years_difference <- 
+      lubridate::year(run$steering_year) - lubridate::year(config$start_date)
     config$start_date <- paste(run$steering_year, "-01-01", sep = "")
     years_move <- years_difference + 1
     if (config$use_lethal_temperature) {
@@ -135,9 +135,9 @@ modelapi <- function(case_study_id, session_id, run_collection_id, run_id) {
   cl <- makeCluster(core_count)
   registerDoParallel(cl)
   
-  run$status <- "RUNNING MODEL"
-  httr::PUT(url = paste(api_url, "run/", run_id, "/", sep = ""), body = run, encode = "json")
-  years <- seq(start_time, end_time, 1)
+  run2$status <- "RUNNING MODEL"
+  httr::PUT(url = paste(api_url, "run/", run_id, "/", sep = ""), body = run2, encode = "json")
+  years <- seq(lubridate::year(config$start_date), lubridate::year(config$end_date), 1)
   rcl <- c(1, Inf, 1, 0, 0.99, NA)
   rclmat <- matrix(rcl, ncol=3, byrow=TRUE)
   
@@ -171,7 +171,7 @@ modelapi <- function(case_study_id, session_id, run_collection_id, run_id) {
                              num_rows = config$num_rows,
                              num_cols = config$num_cols,
                              time_step = config$time_step,
-                             reproductive_rate = config$reproductive_rate,
+                             reproductive_rate = config$reproductive_rate[i],
                              spatial_indices = config$spatial_indices,
                              mortality_rate = config$mortality_rate,
                              mortality_time_lag = config$mortality_time_lag,
@@ -186,15 +186,15 @@ modelapi <- function(case_study_id, session_id, run_collection_id, run_id) {
                              use_anthropogenic_kernel =
                                config$use_anthropogenic_kernel,
                              percent_natural_dispersal =
-                               config$percent_natural_dispersal,
+                               config$percent_natural_dispersal[i],
                              natural_distance_scale =
-                               config$natural_distance_scale,
+                               config$natural_distance_scale[i],
                              anthropogenic_distance_scale =
-                               config$anthropogenic_distance_scale,
+                               config$anthropogenic_distance_scale[i],
                              natural_dir = config$natural_dir,
-                             natural_kappa = config$natural_kappa,
+                             natural_kappa = config$natural_kappa[i],
                              anthropogenic_dir = config$anthropogenic_dir,
-                             anthropogenic_kappa = config$anthropogenic_kappa,
+                             anthropogenic_kappa = config$anthropogenic_kappa[i],
                              output_frequency = config$output_frequency,
                              output_frequency_n = config$output_frequency_n,
                              quarantine_frequency = config$quarantine_frequency,
