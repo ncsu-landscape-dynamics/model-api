@@ -14,6 +14,7 @@ library(parallel)
 library(aws.s3)
 library(sf)
 library(terra)
+library(plumber)
 
 #' Plot out data from the iris dataset
 #' 
@@ -26,6 +27,7 @@ modelapi <- function(case_study_id, session_id, run_collection_id, run_id) {
   
   # change api_url to access either dev, staging, or production Database API.
   # api_url <- "https://popsmodel.org/api/"
+  readRenviron("deploy_model/env")
   api_url <- "http://127.0.0.1:8000/api/"
   run_id <- as.numeric(run_id)
   json_run <- httr::GET(paste(api_url, "run_write/", run_id, "/?format=json", sep = ""))
@@ -49,7 +51,7 @@ modelapi <- function(case_study_id, session_id, run_collection_id, run_id) {
   
   ## Read in Rdata file
   if (is.null(run$steering_year) || 
-      lubridate::year(case_study$first_forecast_date) <= run$steering_year &
+      lubridate::year(case_study$first_forecast_date) >= run$steering_year ||
       is.null(run_collection$second_most_recent_run)) {
     run_file <- case_study$r_data
     run_file <-stringr::str_split(run_file, pattern = ".com/")[[1]][2]
@@ -75,6 +77,11 @@ modelapi <- function(case_study_id, session_id, run_collection_id, run_id) {
   
   ## need to pull this from the polygons now the data
   if (is.null(run$management_polygons) || class(run$management_polygons) != "list") {
+    if (run$steering_year <= lubridate::year(config$start_date)) {
+      config$treatment_dates <- config$start_date
+    } else {
+      config$treatment_dates <- paste(run$steering_year, "-01-01", sep = "")
+    }
     config$treatment_dates <- config$start_date
     config$pesticide_duration <- c(0)
     config$management <- FALSE
@@ -91,7 +98,7 @@ modelapi <- function(case_study_id, session_id, run_collection_id, run_id) {
     pesticide_efficacy <- c()
     pesticide_duration <- c()
     treatment_maps <- c()
-    treatment_dates <- c()
+    treatment_dates <- as.character(c())
     management_costs <- 0
     treatments <- vect(treatments)
     for (i in seq_len(nrow(unique_treatments))) {
@@ -107,12 +114,14 @@ modelapi <- function(case_study_id, session_id, run_collection_id, run_id) {
       management_cost <- 
         round(sum(treatment_map[treatment_map > 0 & (config$infected > 0 | config$susceptible > 0)]) * config$ew_res * config$ns_res * as.numeric(run_collection$cost_per_meter_squared), digits = 2)
       pesticide_duration <- c(pesticide_duration, unique_treatments$duration[i])
-      pesticide_efficacy <- c(pesticide_efficacy, unique_treatments$efficacy[i])
-      treatment_dates <- c(treatment_dates, unique_treatments$date)
-      treatment_maps <- c(treatment_maps, treatment_map)
+      pesticide_efficacy[[i]] <-  unique_treatments$efficacy[i]
+      treatment_dates[[i]] <- as.character(unique_treatments$date[i])
+      treatment_maps[[i]] <- treatment_map
       management_costs <- management_costs + management_cost
     }
-    
+    config$treatment_maps <- treatment_maps
+    config$treatment_dates <- treatment_dates
+    config$pesticide_duration <- as.integer(pesticide_duration)
   }
   
   ## set up if statement for this and weather
@@ -128,7 +137,7 @@ modelapi <- function(case_study_id, session_id, run_collection_id, run_id) {
 
   if (!is.null(run$steering_year)) {
     years_difference <- 
-      lubridate::year(run$steering_year) - lubridate::year(config$start_date)
+      run$steering_year - lubridate::year(config$start_date)
     config$start_date <- paste(run$steering_year, "-01-01", sep = "")
     years_move <- years_difference + 1
     if (config$use_lethal_temperature) {
@@ -136,7 +145,11 @@ modelapi <- function(case_study_id, session_id, run_collection_id, run_id) {
     }
     steps_in_year <- config$number_of_time_steps / config$number_of_years
     time_step_move <- years_difference * steps_in_year + 1
-    weather_coefficient <- weather_coefficient[time_step_move:length(weather_coefficient)]
+    if (config$weather) {
+      config$weather_coefficient <- 
+        config$weather_coefficient[time_step_move:length(config$weather_coefficient)]
+    }
+    
   }
   
   run2$status <- "RUNNING MODEL"
@@ -144,15 +157,6 @@ modelapi <- function(case_study_id, session_id, run_collection_id, run_id) {
   years <- seq(lubridate::year(config$start_date), lubridate::year(config$end_date), 1)
   rcl <- c(1, Inf, 1, 0, 0.99, NA)
   rclmat <- matrix(rcl, ncol=3, byrow=TRUE)
-  
-  # aws.s3::save_object(object = config$host_file, bucket = config$bucket,
-  #                     file = config$host_file, check_region = FALSE)
-  # host <- terra::rast(config$host_file)
-  # host <- terra::classify(host, matrix(c(NA, 0), ncol = 2, byrow = TRUE),
-  #                      right = NA
-  # )
-  # config$host <- host
-  # config$crs <- terra::crs(host)
   
   core_count <- 10
   cl <- makeCluster(core_count)
@@ -407,21 +411,7 @@ modelapi <- function(case_study_id, session_id, run_collection_id, run_id) {
   single_run_out <- single_run[[1]]
   susceptible_run_out <- susceptible_run[[1]]
   exposed_run_out <- exposed_run[[1]]
-  config$infected <- terra::as.matrix(single_run_out, wide = TRUE)
-  config$susceptible <- terra::as.matrix(susceptible_run_out, wdie = TRUE)
-  exposed_run_outs <- list()
-  if (config$model_type == "SEI" & config$latency_period > 1) {
-    for (ex in seq_len(terra::nlyr(exposed_run_out))) {
-      exposed_run_outs[[ex]] <- terra::as.matrix(exposed_run_out[[ex]], wide = TRUE)
-    }
-    config$exposed <- exposed_run_outs
-  }
-  
-  ## write out config to run api
-  save.image(file = "current_run.RData")
-  run_cs <- httr::upload_file("current_run.RData")
-  httr::PUT(url = paste(api_url, "run_r_data/", run_id, "/", sep = ""), body = list(r_data = run_cs))
-  
+
   stuff <- 
     foreach::foreach(q = seq_len(length(years)), 
                      .packages =c("terra", "geojsonio", "httr")) %do% {
@@ -474,10 +464,20 @@ modelapi <- function(case_study_id, session_id, run_collection_id, run_id) {
     year <- years[q]
     
     single_map <- single_run[[q]]
+    infec <- single_map
+    expos <- single_map
+    values(expos) <- 0
+    values(infec) <- 0
+    values(infec) <- config$infected
+    for (m in seq_len(length(config$exposed))) {
+      values(expos) <- as.matrix(expos, wide = TRUE) + config$exposed[[m]]
+    }
+    values(infec) <- values(infec) + values(expos)
     single_map[single_map <= 0] <- NA
     names(single_map) <- "outputs"
-    if (terra::global(single_map, fun = "sum", na.rm = TRUE) == 0) {
-      single_map[single_map > 0] <- 0
+    if (terra::global(single_map, fun = "sum", na.rm = TRUE) == 0 || 
+        is.na(terra::global(single_map, fun = "sum", na.rm = TRUE))) {
+      single_map[infec > 0] <- 0
     }
     single_map_p <- terra::as.polygons(single_map, digits = 4, dissolve = TRUE,
                                        values = TRUE, na.rm = TRUE)
@@ -505,8 +505,9 @@ modelapi <- function(case_study_id, session_id, run_collection_id, run_id) {
     spread_map <- probability[[q]]
     spread_map[spread_map <= 0] <- NA
     names(spread_map) <- "outputs"
-    if (terra::global(spread_map, stat = 'sum', na.rm = TRUE) == 0) {
-      spread_map[spread_map > 0] <- 0
+    if (terra::global(spread_map, stat = 'sum', na.rm = TRUE) == 0 ||
+        is.na(terra::global(spread_map, fun = "sum", na.rm = TRUE))) {
+      spread_map[infec > 0] <- 0
     }
     spread_map_p <- terra::as.polygons(spread_map, digits = 4, dissolve = TRUE,
                                      values = TRUE, na.rm = TRUE)
@@ -525,7 +526,7 @@ modelapi <- function(case_study_id, session_id, run_collection_id, run_id) {
     outs$number_infected <- number_infected
     outs$infected_area <- round(area_infected, digits = 2)
     outs$year <- year
-    outs$single_spread_map <- single_map_p
+    outs$median_spread_map <- single_map_p
     outs$probability_map <- spread_map_p
     outs$susceptible_map <- "null"
     outs$escape_probability <- 0
@@ -558,12 +559,12 @@ modelapi <- function(case_study_id, session_id, run_collection_id, run_id) {
     } else {
       run2$status <- "FAILED"
     }
-    stuff <- run$status
+    stuff <- run2$status
   }
   
   run2$status <- stuff[[1]]
   
-  if (run$status == "SUCCESS") {
+  if (run2$status == "SUCCESS") {
     httr::PUT(url = paste(api_url, "run_write/", run_id, "/", sep = ""), body = run2, encode = "json")
   } else {
     httr::PUT(url = paste(api_url, "run_write/", run_id, "/", sep = ""), body = run2, encode = "json")
@@ -571,7 +572,7 @@ modelapi <- function(case_study_id, session_id, run_collection_id, run_id) {
   
   if (run_collection$default == TRUE || 
       run$steering_year == lubridate::year(config$end_date)) {
-    if (run$status == "SUCCESS") {
+    if (run2$status == "SUCCESS") {
       run_collection$status <- "SUCCESS"
       httr::PUT(url = paste(api_url, "run_collection_write/", run_collection_id, "/", sep = ""), body = run_collection, encode = "json")
     } else {
@@ -580,7 +581,21 @@ modelapi <- function(case_study_id, session_id, run_collection_id, run_id) {
     }
   }
   
-  status <- run$status
+  config$infected <- terra::as.matrix(single_run_out, wide = TRUE)
+  config$susceptible <- terra::as.matrix(susceptible_run_out, wide = TRUE)
+  exposed_run_outs <- list()
+  if (config$model_type == "SEI" & config$latency_period > 1) {
+    for (ex in seq_len(terra::nlyr(exposed_run_out))) {
+      exposed_run_outs[[ex]] <- terra::as.matrix(exposed_run_out[[ex]], wide = TRUE)
+    }
+    config$exposed <- exposed_run_outs
+  }
   
+  ## write out config to run api
+  save(config, file = "current_run.RData")
+  run_cs <- httr::upload_file("current_run.RData")
+  httr::PUT(url = paste(api_url, "run_r_data/", run_id, "/", sep = ""), body = list(r_data = run_cs))
+  
+  status <- run$status
   }
   
