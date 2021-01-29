@@ -1,4 +1,4 @@
-# devtools::install_github("ncsu-landscape-dynamics/rpops")
+# devtools::install_github("ncsu-landscape-dynamics/rpops", ref = "terra")
 library(readr)
 library(PoPS)
 library(httr)
@@ -23,8 +23,8 @@ case_studey_setup <- function(case_study_id, bucket = "") {
   case_study_id <- as.numeric(case_study_id)
   # change api_url to access either dev, staging, or production Database API.
   # api_url <- "https://popsmodel.org/api/case_study/"
-  api_url <- "http://127.0.0.1:8000/api/case_study/"
-  json_case_study <- httr::GET(paste(api_url, case_study_id ,"/?format=json", sep = ""))
+  api_url <- "http://127.0.0.1:8000/api/"
+  json_case_study <- httr::GET(paste(api_url, "case_study/", case_study_id ,"/?format=json", sep = ""))
   case_study <- httr::content(json_case_study)
   
   config <- c()
@@ -233,6 +233,11 @@ case_studey_setup <- function(case_study_id, bucket = "") {
   config$bucket <- bucket
   
   config <- configuration(config)
+  config$crs <- terra::crs(config$host)
+  config$xmax <- terra::xmax(config$host)
+  config$xmin <- terra::xmin(config$host)
+  config$ymax <- terra::ymax(config$host)
+  config$ymin <- terra::ymin(config$host)
   
   data <- PoPS::pops_model(random_seed = config$random_seed, 
                            use_lethal_temperature = config$use_lethal_temperature, 
@@ -310,30 +315,17 @@ case_studey_setup <- function(case_study_id, bucket = "") {
   
   rm(data)
   rm(random_seed)
-  rm(reproductive_rate)
-  rm(natural_distance_scale)
   rm(json_case_study)
   rm(case_study)
-  # rm(case_study_id)
-  rm(high_weather_coefficient_stack)
-  rm(high_temperature_stack)
-  rm(low_weather_coefficient_stack)
-  rm(low_temperature_stack)
-  rm(avg_weather_coefficient_stack)
-  rm(avg_temperature_stack)
-  rm(high_temperature_coefficient)
-  rm(avg_temperature_coefficient)
-  rm(low_temperature_coefficient)
-  rm(treatment_map)
-  rm(low_weather_coefficient)
-  rm(high_weather_coefficient)
-  rm(avg_weather_coefficient)
-  
+  rm(run_collection_id)
+  rm(bucket)
+  rm(run_id)
+  rm(session_id)
+  save.image("case_study.RData")
   
   ## save to dashboard project bucket
-  case_study$r_data
-  gcs_save_image(file = paste("casestudy", case_study_id, ".Rdata", sep = ""), bucket = "test_pops_staging")
-  googleCloudStorageR::gcs_load(file = paste("casestudy", case_study_id, ".Rdata", sep = ""), bucket = "test_pops_staging")
+  casestudy_cs <- httr::upload_file("case_study.RData")
+  httr::PUT(url = paste(api_url, "case_study_r_data/", case_study_id, "/", sep = ""), body = list(r_data = casestudy_cs))
 }
 
 
