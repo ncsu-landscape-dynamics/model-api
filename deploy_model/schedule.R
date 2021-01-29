@@ -13,9 +13,7 @@ library(foreach)
 library(parallel)
 library(aws.s3)
 library(sf)
-library(fasterize)
-library(folderfun)
-# library(terra)
+library(terra)
 
 #' Plot out data from the iris dataset
 #' 
@@ -30,36 +28,38 @@ modelapi <- function(case_study_id, session_id, run_collection_id, run_id) {
   # api_url <- "https://popsmodel.org/api/"
   api_url <- "http://127.0.0.1:8000/api/"
   run_id <- as.numeric(run_id)
-  json_run <- httr::GET(paste(api_url, "run/", run_id, "/?format=json", sep = ""))
+  json_run <- httr::GET(paste(api_url, "run_write/", run_id, "/?format=json", sep = ""))
   run <- httr::content(json_run)
   run2 <- run[c(1:10,12)]
-  httr::PUT(url = paste(api_url, "run/", run_id, "/", sep = ""), body = run2, encode = "json")
-  
-  ## scratch
-  run3 <- run[c(1,11)]
-  run_cs <- upload_file("wsr_casestudy.RData")
-  run$status <- "READING DATA"
-  run3$r_data <- run_cs
-  s <- httr::PUT(url = paste(api_url, "run/", run_id, "/", sep = ""), body = list(r_data = run_cs))
-  f <- httr::content(s)
-  # end
-  
+  httr::PUT(url = paste(api_url, "run_write/", run_id, "/", sep = ""), body = run2, encode = "json")
+
   case_study_id <- as.numeric(case_study_id)
   session_id <- as.numeric(session_id)
   run_collection_id <- as.numeric(run_collection_id)
-  json_run_collection <- httr::GET(paste(api_url, "run_collection/", run_collection_id, "/?format=json", sep = ""))
+  json_run_collection <- httr::GET(paste(api_url, "run_collection_write/", run_collection_id, "/?format=json", sep = ""))
   run_collection <- httr::content(json_run_collection)
-  json_session <- httr::GET(paste(api_url, "session/", session_id, "/?format=json", sep = ""))
+  json_session <- httr::GET(paste(api_url, "session_write/", session_id, "/?format=json", sep = ""))
   session <- httr::content(json_session)
+  json_case_study <- httr::GET(paste(api_url, "case_study/", session_id, "/?format=json", sep = ""))
+  case_study <- httr::content(json_case_study)
   
-  ## needs to be removed once case study is available
-  # config <- c()
-  # setff("out", "H:/Shared drives/Data/Raster/Regional/SLF_100m/") # didn't inlcude writing of any outputs but this is the set up I use for that.
-  # config$host <- raster(ffout("tree_of_heaven_100m.tif"))
+  if (run_collection$second_most_recent_run == "null") {
+    run_collection$second_most_recent_run <- NULL
+  }
   
   ## Read in Rdata file
-  run_file <- run$r_data
-  run_file <-stringr::str_split(run_file, pattern = ".com/")[[1]][2]
+  if (is.null(run$steering_year) || 
+      lubridate::year(case_study$first_forecast_date) <= run$steering_year &
+      is.null(run_collection$second_most_recent_run)) {
+    run_file <- case_study$r_data
+    run_file <-stringr::str_split(run_file, pattern = ".com/")[[1]][2]
+  } else {
+    prev_run_j <- httr::GET(paste(api_url, "run_r_data/", run_collection$second_most_recent_run, "/?format=json", sep = ""))
+    prev_run <- httr::content(prev_run_j)
+    run_file <- prev_run$r_data
+    run_file <-stringr::str_split(run_file, pattern = ".com/")[[1]][2]
+  }
+
   s3load(object = run_file, bucket = 'pops-production')
 
   
@@ -67,6 +67,11 @@ modelapi <- function(case_study_id, session_id, run_collection_id, run_id) {
   ### potentially ignore this
   # natural_distance_scale <- as.numeric(session$distance_scale)
   # reproductive_rate <- as.numeric(session$reproductive_rate)
+  
+  host <- 
+    terra::rast(nrow = config$num_rows, ncol = config$num_cols, 
+                xmin = config$xmin, xmax = config$xmax, 
+                ymin = config$ymin, ymax = config$ymax, crs = config$crs)
   
   ## need to pull this from the polygons now the data
   if (is.null(run$management_polygons) || class(run$management_polygons) != "list") {
@@ -78,8 +83,8 @@ modelapi <- function(case_study_id, session_id, run_collection_id, run_id) {
     management <- TRUE
     treatments_file <- run$management_polygons
     treatments <- geojsonio::as.json(treatments_file)
-    treatments <- st_read(treatments)
-    treatments <- st_transform(treatments, crs = crs(config$host))
+    treatments <- sf::st_read(treatments)
+    treatments <- sf::st_transform(treatments, crs = config$crs)
     treatments_table <- data.frame(treatments[, c("efficacy", "duration", "date")])
     treatments_table <- treatments_table[, c("efficacy", "duration", "date")]
     unique_treatments <- unique(treatments_table)
@@ -88,16 +93,19 @@ modelapi <- function(case_study_id, session_id, run_collection_id, run_id) {
     treatment_maps <- c()
     treatment_dates <- c()
     management_costs <- 0
+    treatments <- vect(treatments)
     for (i in seq_len(nrow(unique_treatments))) {
       current_treatments <- 
         treatments[treatments$date == unique_treatments$date[i] & 
                      treatments$duration == unique_treatments$duration[i] &
                      treatments$efficacy == unique_treatments$efficacy[i], ]
-      treatment_map <- fasterize::fasterize(current_treatments, config$host, fun = "last")
+      treatment_map <- terra::rasterize(current_treatments, host, touches = TRUE,
+                                        fun = "last", cover = TRUE)
       treatment_map[is.na(treatment_map)] <- 0
       treatment_map <- treatment_map * as.numeric(unique_treatments$efficacy[i])
-      treatment_map <- raster::as.matrix(treatment_map)
-      management_cost <- round(sum(treatment_map[treatment_map > 0 & (config$infected > 0 | config$susceptible > 0)]) * xres(treatment_map) * yres(treatment_map) * as.numeric(run_collection$cost_per_meter_squared), digits = 2)
+      treatment_map <- terra::as.matrix(treatment_map, wide = TRUE)
+      management_cost <- 
+        round(sum(treatment_map[treatment_map > 0 & (config$infected > 0 | config$susceptible > 0)]) * config$ew_res * config$ns_res * as.numeric(run_collection$cost_per_meter_squared), digits = 2)
       pesticide_duration <- c(pesticide_duration, unique_treatments$duration[i])
       pesticide_efficacy <- c(pesticide_efficacy, unique_treatments$efficacy[i])
       treatment_dates <- c(treatment_dates, unique_treatments$date)
@@ -131,17 +139,28 @@ modelapi <- function(case_study_id, session_id, run_collection_id, run_id) {
     weather_coefficient <- weather_coefficient[time_step_move:length(weather_coefficient)]
   }
   
-  core_count <- 10
-  cl <- makeCluster(core_count)
-  registerDoParallel(cl)
-  
   run2$status <- "RUNNING MODEL"
-  httr::PUT(url = paste(api_url, "run/", run_id, "/", sep = ""), body = run2, encode = "json")
+  httr::PUT(url = paste(api_url, "run_write/", run_id, "/", sep = ""), body = run2, encode = "json")
   years <- seq(lubridate::year(config$start_date), lubridate::year(config$end_date), 1)
   rcl <- c(1, Inf, 1, 0, 0.99, NA)
   rclmat <- matrix(rcl, ncol=3, byrow=TRUE)
   
-  infected_stack <- foreach::foreach(i = 1:10, .combine = c, .packages = c("raster", "PoPS"), .export = ls(globalenv())) %dopar% {
+  # aws.s3::save_object(object = config$host_file, bucket = config$bucket,
+  #                     file = config$host_file, check_region = FALSE)
+  # host <- terra::rast(config$host_file)
+  # host <- terra::classify(host, matrix(c(NA, 0), ncol = 2, byrow = TRUE),
+  #                      right = NA
+  # )
+  # config$host <- host
+  # config$crs <- terra::crs(host)
+  
+  core_count <- 10
+  cl <- makeCluster(core_count)
+  registerDoParallel(cl)
+  
+  infected_stack <- foreach::foreach(i = seq_len(10), 
+                                     .combine = c,
+                                     .packages = c("terra", "PoPS")) %do% {
     random_seed <- round(stats::runif(1, 1, 1000000))
     
     data <- PoPS::pops_model(random_seed = config$random_seed, 
@@ -215,55 +234,149 @@ modelapi <- function(case_study_id, session_id, run_collection_id, run_id) {
                                config$establishment_probability,
                              dispersal_percentage = config$dispersal_percentage)
     
-    comp_years <- raster::stack(lapply(1:length(data$infected_before_treatment), function(i) config$host))
-    susceptible_runs <- raster::stack(lapply(1:length(data$infected_before_treatment), function(i) config$host))
-    
-    for (q in 1:raster::nlayers(comp_years)) {
-      comp_years[[q]] <- data$infected[[q]]
-      susceptible_runs[[q]] <- data$susceptible[[q]]
+    exposed_runs <- c()
+    for (q in seq_len(length(data$infected))) {
+      if (q == 1) {
+        comp_years <- 
+          terra::rast(nrow = config$num_rows, ncol = config$num_cols, 
+                      xmin = config$xmin, xmax = config$xmax, 
+                      ymin = config$ymin, ymax = config$ymax, crs = config$crs)
+        values(comp_years) <- data$infected[[q]]
+        
+        susceptible_runs <-
+          terra::rast(nrow = config$num_rows, ncol = config$num_cols, 
+                      xmin = config$xmin, xmax = config$xmax, 
+                      ymin = config$ymin, ymax = config$ymax, crs = config$crs)
+        values(susceptible_runs) <- data$susceptible[[q]]
+        
+        for (p in seq_len(length(data$exposed[[q]]))) {
+          if (p == 1) {
+            exposed_run <- 
+              terra::rast(nrow = config$num_rows, ncol = config$num_cols, 
+                          xmin = config$xmin, xmax = config$xmax, 
+                          ymin = config$ymin, ymax = config$ymax, crs = config$crs)
+            values(exposed_run) <- data$exposed[[q]][[p]]
+          } else {
+            exposed_year <- 
+              terra::rast(nrow = config$num_rows, ncol = config$num_cols, 
+                          xmin = config$xmin, xmax = config$xmax, 
+                          ymin = config$ymin, ymax = config$ymax, crs = config$crs)
+            values(exposed_year) <- data$exposed[[q]][[p]]
+            exposed_run <-c(exposed_run, exposed_year)
+          }
+          exposed_runs[[q]] <- exposed_run
+        }
+        
+      } else {
+        comp_year <- 
+          terra::rast(nrow = config$num_rows, ncol = config$num_cols, 
+                      xmin = config$xmin, xmax = config$xmax, 
+                      ymin = config$ymin, ymax = config$ymax, crs = config$crs)
+        values(comp_year) <- data$infected[[q]]
+        
+        susceptible_run <-
+          terra::rast(nrow = config$num_rows, ncol = config$num_cols, 
+                      xmin = config$xmin, xmax = config$xmax, 
+                      ymin = config$ymin, ymax = config$ymax, crs = config$crs)
+        values(susceptible_run) <- data$susceptible[[q]]
+        
+        comp_years <- c(comp_years, comp_year)
+        susceptible_runs <- c(susceptible_runs, susceptible_run)
+        for (p in seq_len(length(data$exposed[[q]]))) {
+          if (p == 1) {
+            exposed_run <- 
+              terra::rast(nrow = config$num_rows, ncol = config$num_cols, 
+                          xmin = config$xmin, xmax = config$xmax, 
+                          ymin = config$ymin, ymax = config$ymax, crs = config$crs)
+            values(exposed_run) <- data$exposed[[q]][[p]]
+          } else {
+            exposed_year <- 
+              terra::rast(nrow = config$num_rows, ncol = config$num_cols, 
+                          xmin = config$xmin, xmax = config$xmax, 
+                          ymin = config$ymin, ymax = config$ymax, crs = config$crs)
+            values(exposed_year) <- data$exposed[[q]][[p]]
+            exposed_run <-c(exposed_run, exposed_year)
+          }
+          exposed_runs[[q]] <- exposed_run
+        }
+      }
     }
     
     number_infected <- data$number_infected
     spread_rate <- data$rates
     infected_area <- data$area_infected
     single_run <- comp_years
-    comp_years <- raster::reclassify(comp_years, rclmat)
+    comp_years <- terra::classify(comp_years, rclmat)
     comp_years[is.na(comp_years)] <- 0
     infected_stack <- comp_years
-    data <- list(single_run, infected_stack, number_infected, susceptible_runs, infected_area, spread_rate)
+    quarantine_escape <- data$quarantine_escape
+    quarantine_distance <- data$quarantine_escape_distance
+    quarantine_direction <- data$quarantine_escape_directions
+    
+    runs <- 
+      list(single_run, infected_stack, number_infected, susceptible_runs, 
+           infected_area, spread_rate, exposed_runs, 
+           quarantine_escape, quarantine_distance, quarantine_direction)
     
   }
   
   stopCluster(cl)
-  single_runs <- infected_stack[seq(1,length(infected_stack),6)]
-  probability_runs <- infected_stack[seq(2,length(infected_stack),6)]
-  number_infected_runs <- infected_stack[seq(3,length(infected_stack),6)]
-  susceptible_runs <- infected_stack[seq(4,length(infected_stack),6)]
-  area_infected_runs <- infected_stack[seq(5,length(infected_stack),6)]
-  spread_rate_runs <- infected_stack[seq(6,length(infected_stack),6)]
+  single_runs <- infected_stack[seq(1, length(infected_stack), 10)]
+  probability_runs <- infected_stack[seq(2, length(infected_stack), 10)]
+  number_infected_runs <- infected_stack[seq(3, length(infected_stack), 10)]
+  susceptible_runs <- infected_stack[seq(4, length(infected_stack), 10)]
+  area_infected_runs <- infected_stack[seq(5, length(infected_stack), 10)]
+  spread_rate_runs <- infected_stack[seq(6, length(infected_stack), 10)]
+  exposed_runs <- infected_stack[seq(7, length(infected_stack), 10)]
+  quarantine_escape_runs <- infected_stack[seq(8, length(infected_stack), 10)]
+  quarantine_escape_distance_runs <- infected_stack[seq(9, length(infected_stack), 10)]
+  quarantine_escape_directions_runs <- 
+    infected_stack[seq(10, length(infected_stack), 10)]
   
   prediction <- probability_runs[[1]]
   prediction[prediction > 0] <- 0
-  infected_area <- data.frame(t(years))
-  infected_number <- data.frame(t(years))
-  west_rates <- data.frame(t(years))
-  east_rates <- data.frame(t(years))
-  south_rates <- data.frame(t(years))
-  north_rates <- data.frame(t(years))
-  max_values <- data.frame(t(years))
+  escape_probability <- data.frame(t(rep(0, terra::nlyr(probability_runs[[1]]))))
+  infected_area <- data.frame(t(rep(0, terra::nlyr(probability_runs[[1]]))))
+  infected_number <- data.frame(t(rep(0, terra::nlyr(probability_runs[[1]]))))
+  west_rates <- data.frame(t(rep(0, terra::nlyr(probability_runs[[1]]))))
+  east_rates <- data.frame(t(rep(0, terra::nlyr(probability_runs[[1]]))))
+  south_rates <- data.frame(t(rep(0, terra::nlyr(probability_runs[[1]]))))
+  north_rates <- data.frame(t(rep(0, terra::nlyr(probability_runs[[1]]))))
+  max_values <- data.frame(t(rep(0, terra::nlyr(probability_runs[[1]]))))
+  quarantine_escapes <-
+    data.frame(t(rep(0, terra::nlyr(probability_runs[[1]]))))
+  quarantine_escape_distances <-
+    data.frame(t(rep(0, terra::nlyr(probability_runs[[1]]))))
+  quarantine_escape_directions <-
+    data.frame(t(rep(0, terra::nlyr(probability_runs[[1]]))))
   
-  for (i in 1:length(probability_runs)) {
-    prediction <- prediction + probability_runs[[i]]
-    infected_number[i,] <- number_infected_runs[[i]]
-    infected_area[i,] <- area_infected_runs[[i]]
-    rates <- do.call(rbind, spread_rate_runs[[i]])
-    west_rates[i,] <- rates[,4]
-    east_rates[i,] <- rates[,3]
-    south_rates[i,] <- rates[,2]
-    north_rates[i,] <- rates[,1]
-    max_values[i,] <- raster::maxValue(single_runs[[i]])
+  for (p in seq_len(length(probability_runs))) {
+    prediction <- prediction + probability_runs[[p]]
+    infected_number[p, ] <- number_infected_runs[[p]]
+    infected_area[p, ] <- area_infected_runs[[p]]
+    rates <- do.call(rbind, spread_rate_runs[[p]])
+    if (!is.null(rates)) {
+      west_rates[p, ] <- rates[, 4]
+      east_rates[p, ] <- rates[, 3]
+      south_rates[p, ] <- rates[, 2]
+      north_rates[p, ] <- rates[, 1]
+    }else {
+      west_rates[p, ] <- 0
+      east_rates[p, ] <- 0
+      south_rates[p, ] <- 0
+      north_rates[p, ] <- 0
+    }
+    
+    if (config$use_quarantine &
+        length(quarantine_escape_runs[[p]]) == terra::nlyr(probability_runs[[p]])) {
+      escape_probability <- escape_probability + quarantine_escape_runs[[p]]
+      quarantine_escapes[p, ] <- quarantine_escape_runs[[p]]
+      quarantine_escape_distances <- quarantine_escape_distance_runs[[p]]
+      quarantine_escape_directions <- quarantine_escape_directions_runs[[p]]
+    }
+    
+    max_values[p, ] <- max(terra::values(single_runs[[p]]))
   }
-  
   
   probability <- (prediction/(length(probability_runs))) * 100
   
@@ -279,30 +392,39 @@ modelapi <- function(case_study_id, session_id, run_collection_id, run_id) {
   
   single_run <- single_runs[[median_run_index]]
   susceptible_run <- susceptible_runs[[median_run_index]]
+  exposed_run <- exposed_runs[[median_run_index]]
   
-  run$status <- "WRITING DATA"
-  httr::PUT(url = paste(api_url, "run/", run_id, "/", sep = ""), body = run, encode = "json")
+  run2$status <- "WRITING DATA"
+  httr::PUT(url = paste(api_url, "run_write/", run_id, "/", sep = ""), body = run2, encode = "json")
   
   if (run_id == session$default_run) {
     max_value <- round(sapply(max_values, function(x) c( "Mean"= mean(x,na.rm=TRUE),"Stand dev" = sd(x))), digits = 0)
     max_value_out <- max_value[1,ncol(max_value)]
     session$max_value <- max_value_out
-    httr::PUT(url = paste(api_url, "session/", session_id, "/", sep = ""), body = session, encode = "json")
-    
+    httr::PUT(url = paste(api_url, "session_write/", session_id, "/", sep = ""), body = session, encode = "json")
   }
   
   single_run_out <- single_run[[1]]
   susceptible_run_out <- susceptible_run[[1]]
+  exposed_run_out <- exposed_run[[1]]
+  config$infected <- terra::as.matrix(single_run_out, wide = TRUE)
+  config$susceptible <- terra::as.matrix(susceptible_run_out, wdie = TRUE)
+  exposed_run_outs <- list()
+  if (config$model_type == "SEI" & config$latency_period > 1) {
+    for (ex in seq_len(terra::nlyr(exposed_run_out))) {
+      exposed_run_outs[[ex]] <- terra::as.matrix(exposed_run_out[[ex]], wide = TRUE)
+    }
+    config$exposed <- exposed_run_outs
+  }
   
-  flyio::flyio_auth(auth_list = c("GCS_AUTH_FILE"))
-  flyio::export_raster(x = single_run_out, file = paste("infected_", case_study_id , "_", run_id ,".tif", sep = ""), data_source = "gcs", bucket = "test_pops_staging")
-  flyio::export_raster(x = susceptible_run_out, file = paste("susceptible_", case_study_id , "_", run_id ,".tif", sep = ""), data_source = "gcs", bucket = "test_pops_staging", overwrite = TRUE)
+  ## write out config to run api
+  save.image(file = "current_run.RData")
+  run_cs <- httr::upload_file("current_run.RData")
+  httr::PUT(url = paste(api_url, "run_r_data/", run_id, "/", sep = ""), body = list(r_data = run_cs))
   
-  # core_count <- 10
-  cl <- makeCluster(core_count)
-  registerDoParallel(cl)
-  
-  stuff <- foreach::foreach(q = 1:length(years), .packages =c("raster", "geojsonio", "httr"), .export = ls(globalenv())) %dopar% {
+  stuff <- 
+    foreach::foreach(q = seq_len(length(years)), 
+                     .packages =c("terra", "geojsonio", "httr")) %do% {
     if (q == 1) {
       number_infected <- infected_number[median_run_index, q]
       area_infected <- infected_area[median_run_index, q]
@@ -352,38 +474,59 @@ modelapi <- function(case_study_id, session_id, run_collection_id, run_id) {
     year <- years[q]
     
     single_map <- single_run[[q]]
-    single_map <- as.integer(single_map)
     single_map[single_map <= 0] <- NA
     names(single_map) <- "outputs"
-    if (cellStats(single_map, stat = 'sum') == 0) {
-      single_map[infected_start > 0] <- 0
+    if (terra::global(single_map, fun = "sum", na.rm = TRUE) == 0) {
+      single_map[single_map > 0] <- 0
     }
-    # single_map <- projectRaster(single_map, crs = CRS("+proj=longlat +datum=WGS84"), method = "ngb")
-    single_map <- raster::rasterToPolygons(single_map, n = 4, digits = 4, dissolve = T, na.rm = TRUE)
-    storage.mode(single_map$outputs) <- "integer"
-    single_map <- geojsonio::geojson_list(single_map, precision = 4, convert_wgs84 = TRUE, geometry = "polygon")
-    class(single_map) <- "list"
+    single_map_p <- terra::as.polygons(single_map, digits = 4, dissolve = TRUE,
+                                       values = TRUE, na.rm = TRUE)
+    storage.mode(single_map_p$outputs) <- "integer"
+    
+    setAs("SpatVector", "sf",
+          function(from) {
+            sf::st_as_sf(as.data.frame(from, geom=TRUE), 
+                         wkt="geometry", crs=crs(from))
+          }
+    )
+    
+    st_as_sf.SpatVector <- function(x, ...) {
+      sf::st_as_sf(as.data.frame(x, geom=TRUE), wkt="geometry", crs=crs(x))
+    }
+    
+    single_map_p <- terra::project(single_map_p, "epsg:4326")
+    single_map_p <- as(single_map_p, "sf")
+    single_map_p <- sf::st_as_sf(single_map_p)
+    
+    single_map_p <- 
+      geojsonio::geojson_list(single_map_p, precision = 4, geometry = "polygon")
+    class(single_map_p) <- "list"
     
     spread_map <- probability[[q]]
-    spread_map <- as.integer(spread_map)
     spread_map[spread_map <= 0] <- NA
     names(spread_map) <- "outputs"
-    if (cellStats(spread_map, stat = 'sum') == 0) {
-      spread_map[infected_start > 0] <- 0
+    if (terra::global(spread_map, stat = 'sum', na.rm = TRUE) == 0) {
+      spread_map[spread_map > 0] <- 0
     }
-    # spread_map <- projectRaster(spread_map, crs = CRS("+proj=longlat +datum=WGS84"), method = "ngb")
-    spread_map <- raster::rasterToPolygons(spread_map, n = 4, dissolve = T, na.rm = TRUE)
-    storage.mode(spread_map$outputs) <- "integer"
-    spread_map <- geojsonio::geojson_list(spread_map, precision = 4, convert_wgs84 = TRUE, geometry = "polygon")
-    class(spread_map) <- "list"
+    spread_map_p <- terra::as.polygons(spread_map, digits = 4, dissolve = TRUE,
+                                     values = TRUE, na.rm = TRUE)
+    storage.mode(spread_map_p$outputs) <- "integer"
+    
+    spread_map_p <- terra::project(spread_map_p, "epsg:4326")
+    spread_map_p <- as(spread_map_p, "sf")
+    spread_map_p <- sf::st_as_sf(spread_map_p)
+    
+    spread_map_p <- 
+      geojsonio::geojson_list(spread_map_p, precision = 4, geometry = "polygon")
+    class(spread_map_p) <- "list"
     
     outs <- list()
     outs$run <- run_id
     outs$number_infected <- number_infected
-    outs$infected_area <- area_infected
+    outs$infected_area <- round(area_infected, digits = 2)
     outs$year <- year
-    outs$single_spread_map <- single_map
-    outs$probability_map <- spread_map
+    outs$single_spread_map <- single_map_p
+    outs$probability_map <- spread_map_p
     outs$susceptible_map <- "null"
     outs$escape_probability <- 0
     spreadrate <- list()
@@ -406,34 +549,38 @@ modelapi <- function(case_study_id, session_id, run_collection_id, run_id) {
     outs$timetoboundary <- timetoboundary
     outs$spreadrate <- spreadrate
     outs$distancetoboundary <- distancetoboundary
-    post_code <- httr::POST(url = paste(api_url, "output/",sep = ""), body = outs, encode = "json")
+    post_code <- 
+      httr::POST(url = paste(api_url, "output/",sep = ""), 
+                 body = outs, encode = "json")
+    
     if (post_code$status_code == 201) {
-      run$status <- "SUCCESS"
+      run2$status <- "SUCCESS"
     } else {
-      run$status <- "FAILED"
+      run2$status <- "FAILED"
     }
     stuff <- run$status
   }
   
-  stopCluster(cl)
-  run$status <- stuff[[1]]
+  run2$status <- stuff[[1]]
   
   if (run$status == "SUCCESS") {
-    httr::PUT(url = paste("https://pops-model.org/api/run/", run_id, "/", sep = ""), body = run, encode = "json")
+    httr::PUT(url = paste(api_url, "run_write/", run_id, "/", sep = ""), body = run2, encode = "json")
   } else {
-    httr::PUT(url = paste("https://pops-model.org/api/run/", run_id, "/", sep = ""), body = run, encode = "json")
+    httr::PUT(url = paste(api_url, "run_write/", run_id, "/", sep = ""), body = run2, encode = "json")
   }
   
-  if (run_collection$default == TRUE || run$steering_year == end_time) {
+  if (run_collection$default == TRUE || 
+      run$steering_year == lubridate::year(config$end_date)) {
     if (run$status == "SUCCESS") {
       run_collection$status <- "SUCCESS"
-      httr::PUT(url = paste("https://pops-model.org/api/run_collection/", run_collection_id, "/", sep = ""), body = run_collection, encode = "json")
+      httr::PUT(url = paste(api_url, "run_collection_write/", run_collection_id, "/", sep = ""), body = run_collection, encode = "json")
     } else {
       run_collection$status <- "FAILED"
-      httr::PUT(url = paste("https://pops-model.org/api/run_collection/", run_collection_id, "/", sep = ""), body = run_collection, encode = "json")
+      httr::PUT(url = paste(api_url, "run_collection_write/", run_collection_id, "/", sep = ""), body = run_collection, encode = "json")
     }
   }
   
   status <- run$status
   
-}
+  }
+  
