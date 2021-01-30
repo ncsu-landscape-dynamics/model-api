@@ -79,12 +79,15 @@ RUN install2.r --error --skipinstalled \
     terra \
     usethis
     
-## RUN R -e "install.packages(c('RColorBrewer', 'remotes', 'RandomFields', 'plumber', 'aws.s3', 'geojsonio', 'httr','RNetCDF'), repos = 'http://cran.us.r-project.org')"
+RUN R -e "install.packages(c('terra'), repos = 'http://cran.us.r-project.org')"
 
 ## RUN R -e "install.packages(c('RColorBrewer', 'RandomFields', 'RNetCDF', 'classInt', 'deldir', 'gstat', 'hdf5r', 'lidR', 'mapdata', 'maptools', 'mapview', 'ncdf4, 'proj4', 'raster', 'rgdal', 'rgeos', 'rlas', 'sf', 'sp', 'spacetime', 'spatstat', 'spdep', 'geoR', 'geosphere', 'aws.s3', 'devtools', 'doParallel', 'foreach', 'geojson', 'geojsonio', 'httr', 'iterators', 'jsonlite', 'plumber', 'protolite', 'raster', 'remotes', 'rgdal', 'sf', 'sp', 'terra', 'usethis'))"
 
 RUN ["installGithub.r", "ncsu-landscape-dynamics/rpops@b12e865c490db7cf955767ed9ced1a1f7ba6b2d8"]
 COPY / /
 
+## open port 8079 to traffic
 EXPOSE 8079
+
+# when the container starts, start the main.R script
 ENTRYPOINT ["Rscript", "main.R"]
