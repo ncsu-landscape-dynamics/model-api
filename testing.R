@@ -5,14 +5,21 @@ post_code <- httr::POST(url = "https://pops-model.org/api/output/", body = outpu
 code <- httr::content(post_code)
 output$run <- 1488
 
-## run with management for parsing
+## run with management for parsing using SLF
 case_study_id = "1"
 session_id = "1"
 run_collection_id = "5"
 run_id = "2"
 
-library(aws.s3)
-bucket = 'pops-production'
+## run with management for parsing using WSR
+case_study_id = "2"
+session_id = "2"
+run_collection_id = "19"
+# run_id = "4"
+run_id = "28"
+
+modelapi(case_study_id, session_id, run_collection_id, run_id)
+
 
 t <- config$infected_file
 save_file = aws.s3::save_object(object = t, bucket = bucket, file = t, check_region = FALSE)
