@@ -27,7 +27,7 @@ modelapi <- function(case_study_id, session_id, run_collection_id, run_id) {
   
   # change api_url to access either dev, staging, or production Database API.
   # api_url <- "https://popsmodel.org/api/"
-  readRenviron("deploy_model/env")
+  readRenviron("env")
   api_url <- "http://127.0.0.1:8000/api/"
   run_id <- as.numeric(run_id)
   json_run <- httr::GET(paste(api_url, "run_write/", run_id, "/?format=json", sep = ""))
