@@ -22,8 +22,8 @@ case_studey_setup <- function(case_study_id, bucket = "") {
   
   case_study_id <- as.numeric(case_study_id)
   # change api_url to access either dev, staging, or production Database API.
-  # api_url <- "https://popsmodel.org/api/case_study/"
-  api_url <- "http://127.0.0.1:8000/api/"
+  api_url <- "https://pops-model.org/api/"
+  # api_url <- "http://127.0.0.1:8000/api/"
   json_case_study <- httr::GET(paste(api_url, "case_study/", case_study_id ,"/?format=json", sep = ""))
   case_study <- httr::content(json_case_study)
   
@@ -310,22 +310,8 @@ case_studey_setup <- function(case_study_id, bucket = "") {
                              config$establishment_probability,
                            dispersal_percentage = config$dispersal_percentage)
   
-  
-  # weather_coefficient <- weather_coefficient[1:156]
-  
-  rm(data)
-  rm(random_seed)
-  rm(json_case_study)
-  rm(case_study)
-  rm(run_collection_id)
-  rm(bucket)
-  rm(run_id)
-  rm(session_id)
-  save.image("case_study.RData")
-  
+  save(config, file = "case_study.RData")
   ## save to dashboard project bucket
   casestudy_cs <- httr::upload_file("case_study.RData")
   httr::PUT(url = paste(api_url, "case_study_r_data/", case_study_id, "/", sep = ""), body = list(r_data = casestudy_cs))
 }
-
-
