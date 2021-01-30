@@ -16,7 +16,7 @@ library(sf)
 library(terra)
 library(plumber)
 
-#' Plot out data from the iris dataset
+#' Return the status of a model call
 #' 
 #' @param case_study_id required to get the proper case study information
 #' @param session_id required to set the proper session id
@@ -596,6 +596,6 @@ modelapi <- function(case_study_id, session_id, run_collection_id, run_id) {
   run_cs <- httr::upload_file("current_run.RData")
   httr::PUT(url = paste(api_url, "run_r_data/", run_id, "/", sep = ""), body = list(r_data = run_cs))
   
-  status <- run$status
+  status <- run2$status
   }
   

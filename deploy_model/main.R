@@ -17,4 +17,4 @@ library(terra)
 library(plumber)
 
 pr <- plumber::plumb("schedule.R")
-pr$run(host='0.0.0.0', port=8079)
+pr$run(host = "0.0.0.0", port = 8079)

@@ -1,4 +1,4 @@
-FROM rocker/r-ver:4.0.2
+FROM rocker/verse:4.0.2
 Label maintainer="Chris Jones <cmjone25@ncsu.edu>"
 
 RUN apt-get update -qq \
@@ -34,8 +34,10 @@ RUN apt-get update -qq \
     libsodium-dev \
     libxml2-dev
 
+
 ## Instal R packages
-RUN install2.r --error \
+RUN install2.r --error --skipinstalled \
+    aws.s3 \
     RColorBrewer \
     RandomFields \
     RNetCDF \
@@ -60,11 +62,9 @@ RUN install2.r --error \
     spdep \
     geoR \
     geosphere \
-    aws.s3 \
     devtools \
     doParallel \
     foreach \
-    geojson \
     geojsonio \
     httr \
     iterators \
