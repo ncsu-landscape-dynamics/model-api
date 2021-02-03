@@ -397,6 +397,31 @@ modelapi <- function(case_study_id, session_id, run_collection_id, run_id) {
   susceptible_run <- susceptible_runs[[median_run_index]]
   exposed_run <- exposed_runs[[median_run_index]]
   
+  for (q in seq_len(terra::nlyr(single_runs[[1]]))) {
+    for (j in seq_len(length(single_runs))) {
+      if (j == 1) {
+        raster_stacks <- single_runs[[j]][[q]]
+      } else {
+        raster_stacks <- c(raster_stacks, single_runs[[j]][[q]])
+      }
+    }
+    simulation_mean <- terra::app(raster_stacks, fun = mean)
+    simulation_sd <- terra::app(raster_stacks, fun = sd)
+    simulation_min <- terra::app(raster_stacks, fun = min)
+    simulation_max <- terra::app(raster_stacks, fun = max)
+    if (q == 1) {
+      simulation_mean_stack <- simulation_mean
+      simulation_sd_stack <- simulation_sd
+      simulation_min_stack <- simulation_min
+      simulation_max_stack <- simulation_max
+    } else {
+      simulation_mean_stack <- c(simulation_mean_stack, simulation_mean)
+      simulation_sd_stack <- c(simulation_sd_stack, simulation_sd)
+      simulation_min_stack <- c(simulation_min_stack, simulation_min)
+      simulation_max_stack <- c(simulation_max_stack, simulation_max)
+    }
+  }
+  
   run2$status <- "WRITING DATA"
   httr::PUT(url = paste(api_url, "run_write/", run_id, "/", sep = ""), body = run2, encode = "json")
   
@@ -520,6 +545,85 @@ modelapi <- function(case_study_id, session_id, run_collection_id, run_id) {
       geojsonio::geojson_list(spread_map_p, precision = 4, geometry = "polygon")
     class(spread_map_p) <- "list"
     
+    
+    max_map <- simulation_max_stack[[q]]
+    max_map[max_map <= 0] <- NA
+    names(max_map) <- "outputs"
+    if (terra::global(max_map, stat = 'sum', na.rm = TRUE) == 0 ||
+        is.na(terra::global(max_map, fun = "sum", na.rm = TRUE))) {
+      max_map[infec > 0] <- 0
+    }
+    max_map_p <- terra::as.polygons(max_map, digits = 4, dissolve = TRUE,
+                                       values = TRUE, na.rm = TRUE)
+    storage.mode(max_map_p$outputs) <- "integer"
+    
+    max_map_p <- terra::project(max_map_p, "epsg:4326")
+    max_map_p <- as(max_map_p, "sf")
+    max_map_p <- sf::st_as_sf(max_map_p)
+    
+    max_map_p <- 
+      geojsonio::geojson_list(max_map_p, precision = 4, geometry = "polygon")
+    class(max_map_p) <- "list"
+    
+    
+    min_map <- simulation_min_stack[[q]]
+    min_map[min_map <= 0] <- NA
+    names(min_map) <- "outputs"
+    if (terra::global(min_map, stat = 'sum', na.rm = TRUE) == 0 ||
+        is.na(terra::global(min_map, fun = "sum", na.rm = TRUE))) {
+      min_map[infec > 0] <- 0
+    }
+    min_map_p <- terra::as.polygons(min_map, digits = 4, dissolve = TRUE,
+                                       values = TRUE, na.rm = TRUE)
+    storage.mode(min_map_p$outputs) <- "integer"
+    
+    min_map_p <- terra::project(min_map_p, "epsg:4326")
+    min_map_p <- as(min_map_p, "sf")
+    min_map_p <- sf::st_as_sf(min_map_p)
+    
+    min_map_p <- 
+      geojsonio::geojson_list(min_map_p, precision = 4, geometry = "polygon")
+    class(min_map_p) <- "list"
+    
+    sd_map <- simulation_sd_stack[[q]]
+    sd_map[sd_map <= 0] <- NA
+    names(sd_map) <- "outputs"
+    if (terra::global(sd_map, stat = 'sum', na.rm = TRUE) == 0 ||
+        is.na(terra::global(sd_map, fun = "sum", na.rm = TRUE))) {
+      sd_map[infec > 0] <- 0
+    }
+    sd_map_p <- terra::as.polygons(sd_map, digits = 4, dissolve = TRUE,
+                                       values = TRUE, na.rm = TRUE)
+    storage.mode(sd_map_p$outputs) <- "integer"
+    
+    sd_map_p <- terra::project(sd_map_p, "epsg:4326")
+    sd_map_p <- as(sd_map_p, "sf")
+    sd_map_p <- sf::st_as_sf(sd_map_p)
+    
+    sd_map_p <- 
+      geojsonio::geojson_list(sd_map_p, precision = 4, geometry = "polygon")
+    class(sd_map_p) <- "list"
+    
+    mean_map <- simulation_mean_stack[[q]]
+    mean_map[mean_map <= 0] <- NA
+    names(mean_map) <- "outputs"
+    if (terra::global(mean_map, stat = 'sum', na.rm = TRUE) == 0 ||
+        is.na(terra::global(mean_map, fun = "sum", na.rm = TRUE))) {
+      mean_map[infec > 0] <- 0
+    }
+    mean_map_p <- terra::as.polygons(mean_map, digits = 4, dissolve = TRUE,
+                                   values = TRUE, na.rm = TRUE)
+    storage.mode(mean_map_p$outputs) <- "integer"
+    
+    mean_map_p <- terra::project(mean_map_p, "epsg:4326")
+    mean_map_p <- as(mean_map_p, "sf")
+    mean_map_p <- sf::st_as_sf(mean_map_p)
+    
+    mean_map_p <- 
+      geojsonio::geojson_list(mean_map_p, precision = 4, geometry = "polygon")
+    class(mean_map_p) <- "list"
+    
+    
     outs <- list()
     outs$run <- run_id
     outs$number_infected <- number_infected
@@ -527,7 +631,10 @@ modelapi <- function(case_study_id, session_id, run_collection_id, run_id) {
     outs$year <- year
     outs$median_spread_map <- single_map_p
     outs$probability_map <- spread_map_p
-    outs$susceptible_map <- "null"
+    outs$max_spread_map <- max_map_p
+    outs$min_spread_map <- min_map_p
+    outs$standard_deviation_map <- sd_map_p
+    outs$mean_spread_map <- mean_map_p
     outs$escape_probability <- 0
     spreadrate <- list()
     spreadrate$west_rate <- west_rate_r
