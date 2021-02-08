@@ -94,7 +94,7 @@ modelapi <- function(case_study_id, session_id, run_collection_id, run_id) {
     } else {
       config$treatment_dates <- paste(run$steering_year, "-01-01", sep = "")
     }
-    config$treatment_dates <- config$start_date
+    config$treatment_dates <- paste(run$steering_year, "-01-01", sep = "")
     config$pesticide_duration <- c(0)
     config$management <- FALSE
 
@@ -161,7 +161,7 @@ modelapi <- function(case_study_id, session_id, run_collection_id, run_id) {
     if (config$use_lethal_temperature) {
       temperature <- temperature[years_move:length(temperature)]
     }
-    steps_in_year <- config$number_of_time_steps / config$number_of_years
+    steps_in_year <- floor(config$number_of_time_steps / config$number_of_years)
     time_step_move <- years_difference * steps_in_year + 1
     if (config$weather) {
       config$weather_coefficient <-
@@ -553,8 +553,8 @@ modelapi <- function(case_study_id, session_id, run_collection_id, run_id) {
     single_map$probability <- probability[[q]]
     single_map$max <- simulation_max_stack[[q]]
     single_map$min <- simulation_min_stack[[q]]
-    single_map$mean <- simulation_sd_stack[[q]]
-    single_map$standard_deviation <- simulation_mean_stack[[q]]
+    single_map$mean <- simulation_mean_stack[[q]]
+    single_map$standard_deviation <- simulation_sd_stack[[q]]
     single_map[single_map <= 0] <- NA
 
     if (terra::global(single_map, fun = "sum", na.rm = TRUE) == 0 ||
