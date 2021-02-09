@@ -14,9 +14,9 @@ run_id = "2"
 ## run with management for parsing using WSR
 case_study_id = "2"
 session_id = "2"
-run_collection_id = "19"
+run_collection_id = "86"
 # run_id = "4"
-run_id = "28"
+run_id = "124"
 
 modelapi(case_study_id, session_id, run_collection_id, run_id)
 
