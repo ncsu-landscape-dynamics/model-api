@@ -7,16 +7,25 @@ output$run <- 1488
 
 ## run with management for parsing using SLF
 case_study_id = "1"
+bucket = "pops-production"
 session_id = "1"
-run_collection_id = "5"
-run_id = "2"
+run_collection_id = "182"
+run_id = "250"
+
+
+## run with management for parsing using SLF PA
+case_study_id = "4"
+bucket = "pops-production"
+session_id = "3"
+run_collection_id = "221"
+run_id = "296"
 
 ## run with management for parsing using WSR
 case_study_id = "2"
 session_id = "2"
-run_collection_id = "86"
+run_collection_id = "220"
 # run_id = "4"
-run_id = "124"
+run_id = "293"
 
 modelapi(case_study_id, session_id, run_collection_id, run_id)
 
