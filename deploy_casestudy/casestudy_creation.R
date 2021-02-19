@@ -1,4 +1,4 @@
-# devtools::install_github("ncsu-landscape-dynamics/rpops", ref = "terra")
+# devtools::install_github("ncsu-landscape-dynamics/rpops")
 library(readr)
 library(PoPS)
 library(httr)
@@ -234,11 +234,6 @@ case_studey_setup <- function(case_study_id, bucket = "") {
   config$bucket <- bucket
 
   config <- configuration(config)
-  config$crs <- terra::crs(config$host)
-  config$xmax <- terra::xmax(config$host)
-  config$xmin <- terra::xmin(config$host)
-  config$ymax <- terra::ymax(config$host)
-  config$ymin <- terra::ymin(config$host)
 
   data <- PoPS::pops_model(random_seed = config$random_seed,
                            use_lethal_temperature = config$use_lethal_temperature,
