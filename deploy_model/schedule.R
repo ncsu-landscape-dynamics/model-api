@@ -127,12 +127,13 @@ modelapi <- function(case_study_id, session_id, run_collection_id, run_id) {
     treatment_maps <- c()
     treatment_dates <- as.character(c())
     management_costs <- 0
-    treatments <- vect(treatments)
+    treatments2 <- vect(treatments)
+    treatments2$efficacy <- treatments$efficacy
     for (i in seq_len(nrow(unique_treatments))) {
       current_treatments <-
-        treatments[treatments$date == unique_treatments$date[i] &
-                     treatments$duration == unique_treatments$duration[i] &
-                     treatments$efficacy == unique_treatments$efficacy[i], ]
+        treatments2[treatments2$date == unique_treatments$date[i] &
+                     treatments2$duration == unique_treatments$duration[i] &
+                     treatments2$efficacy == unique_treatments$efficacy[i], ]
       treatment_map <-
         terra::rasterize(current_treatments, host, touches = TRUE,
                                         fun = "last", cover = TRUE)
@@ -592,22 +593,12 @@ modelapi <- function(case_study_id, session_id, run_collection_id, run_id) {
     }
     reso <- config$ew_res
 
-    if (terra::ncell(single_map) <= 1000) {
+    if (terra::ncell(single_map) <= 100000) {
       single_map_s <- st_as_stars(single_map)
-    } else if (terra::ncell(single_map) > 1000 &&
-               terra::ncell(single_map) <= 50000) {
-      single_map_b <- terra::aggregate(single_map, fact = 2, fun = "mean")
-      single_map_s <- st_as_stars(single_map_b)
-      reso <- reso * 2
-    } else if (terra::ncell(single_map) > 50000 &&
-               terra::ncell(single_map) <= 120000) {
+    } else if (terra::ncell(single_map) > 100000) {
       single_map_b <- terra::aggregate(single_map, fact = 3, fun = "mean")
       single_map_s <- st_as_stars(single_map_b)
-      reso <- reso * 3
-    } else if (terra::ncell(single_map) > 120000) {
-      single_map_b <- terra::aggregate(single_map, fact = 4, fun = "mean")
-      single_map_s <- st_as_stars(single_map_b)
-      reso <- reso * 4
+      reso <- reso * 2
     }
 
     st_crs(single_map_s) <- 3857
@@ -647,13 +638,13 @@ modelapi <- function(case_study_id, session_id, run_collection_id, run_id) {
     if (reso <= 10) {
       single_map_p <-
         geojsonio::geojson_list(single_map_p, precision = 6, geometry = "polygon")
-    } else if (reso > 10 && reso <= 500) {
+    } else if (reso > 10 && reso <= 100) {
       single_map_p <-
         geojsonio::geojson_list(single_map_p, precision = 5, geometry = "polygon")
-    } else if (reso > 50 && reso <= 300) {
+    } else if (reso > 100 && reso <= 500) {
       single_map_p <-
         geojsonio::geojson_list(single_map_p, precision = 4, geometry = "polygon")
-    } else if (reso > 300) {
+    } else if (reso > 500) {
       single_map_p <-
         geojsonio::geojson_list(single_map_p, precision = 3, geometry = "polygon")
     }
