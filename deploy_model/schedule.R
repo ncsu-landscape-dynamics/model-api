@@ -15,6 +15,7 @@ library(aws.s3)
 library(sf)
 library(terra)
 library(plumber)
+library(stars)
 
 #' Return the status of a model call
 #'
@@ -29,6 +30,19 @@ modelapi <- function(case_study_id, session_id, run_collection_id, run_id) {
   # api_url <- "http://127.0.0.1:8000/api/"
   api_url <- "https://pops-model.org/api/"
   readRenviron("env")
+
+  setAs("SpatVector", "sf",
+        function(from) {
+          sf::st_as_sf(as.data.frame(from, geom = TRUE),
+                       wkt = "geometry", crs = crs(from))
+        }
+  )
+
+  st_as_sf.SpatVector <- function(x, ...) {
+    sf::st_as_sf(as.data.frame(x, geom = TRUE), wkt = "geometry",
+                 crs = crs(x))
+  }
+
   run_id <- as.numeric(run_id)
   json_run <-
     httr::GET(paste(api_url, "run_write/", run_id, "/?format=json", sep = ""))
@@ -49,7 +63,7 @@ modelapi <- function(case_study_id, session_id, run_collection_id, run_id) {
                     session_id, "/?format=json", sep = ""))
   session <- httr::content(json_session)
   json_case_study <-
-    httr::GET(paste(api_url, "case_study/", session_id,
+    httr::GET(paste(api_url, "case_study/", case_study_id,
                     "/?format=json", sep = ""))
   case_study <- httr::content(json_case_study)
 
@@ -89,12 +103,12 @@ modelapi <- function(case_study_id, session_id, run_collection_id, run_id) {
   ## need to pull this from the polygons now the data
   if (is.null(run$management_polygons) ||
       class(run$management_polygons) != "list") {
-    if (run$steering_year <= lubridate::year(config$start_date)) {
+    if (is.null(run$steering_year) ||
+        run$steering_year <= lubridate::year(config$start_date)) {
       config$treatment_dates <- config$start_date
     } else {
       config$treatment_dates <- paste(run$steering_year, "-01-01", sep = "")
     }
-    config$treatment_dates <- paste(run$steering_year, "-01-01", sep = "")
     config$pesticide_duration <- c(0)
     config$management <- FALSE
 
@@ -108,8 +122,8 @@ modelapi <- function(case_study_id, session_id, run_collection_id, run_id) {
       data.frame(treatments[, c("efficacy", "duration", "date")])
     treatments_table <- treatments_table[, c("efficacy", "duration", "date")]
     unique_treatments <- unique(treatments_table)
-    pesticide_efficacy <- c()
-    pesticide_duration <- c()
+    pesticide_efficacy <- as.numeric(c())
+    pesticide_duration <- as.integer(c())
     treatment_maps <- c()
     treatment_dates <- as.character(c())
     management_costs <- 0
@@ -131,27 +145,36 @@ modelapi <- function(case_study_id, session_id, run_collection_id, run_id) {
                                      config$susceptible > 0)]) *
                 config$ew_res * config$ns_res *
                 as.numeric(run_collection$cost_per_meter_squared), digits = 2)
-      pesticide_duration <- c(pesticide_duration, unique_treatments$duration[i])
-      pesticide_efficacy[[i]] <-  unique_treatments$efficacy[i]
+      pesticide_dur <- as.integer(unique_treatments$duration[i])
+      if (config$time_step == "month") {
+        pesticide_dur <- round(pesticide_dur / 30)
+      } else if (config$time_step == "week") {
+        pesticide_dur <- round(pesticide_dur / 7)
+      } else {
+        pesticide_dur <- pesticide_dur
+      }
+      pesticide_duration[[i]] <- pesticide_dur
+      pesticide_efficacy[[i]] <-  as.numeric(unique_treatments$efficacy[i])
       treatment_dates[[i]] <- as.character(unique_treatments$date[i])
       treatment_maps[[i]] <- treatment_map
       management_costs <- management_costs + management_cost
     }
     config$treatment_maps <- treatment_maps
     config$treatment_dates <- treatment_dates
-    config$pesticide_duration <- as.integer(pesticide_duration)
+    config$pesticide_duration <- pesticide_duration
+    config$pesticide_efficacy <- pesticide_efficacy
   }
 
   ## set up if statement for this and weather
-  if (config$temp) {
-    if (session$weather == "GOOD") {
-      temperature <- high_temperature
-    } else if (session$weather == "BAD") {
-      temperature <- low_temperature
-    } else {
-      temperature <- temperature
-    }
-  }
+  # if (config$temp) {
+  #   if (session$weather == "GOOD") {
+  #     temperature <- high_temperature
+  #   } else if (session$weather == "BAD") {
+  #     temperature <- low_temperature
+  #   } else {
+  #     temperature <- temperature
+  #   }
+  # }
 
   if (!is.null(run$steering_year)) {
     years_difference <-
@@ -159,7 +182,7 @@ modelapi <- function(case_study_id, session_id, run_collection_id, run_id) {
     config$start_date <- paste(run$steering_year, "-01-01", sep = "")
     years_move <- years_difference + 1
     if (config$use_lethal_temperature) {
-      temperature <- temperature[years_move:length(temperature)]
+      config$temperature <- config$temperature[years_move:length(config$temperature)]
     }
     steps_in_year <- floor(config$number_of_time_steps / config$number_of_years)
     time_step_move <- years_difference * steps_in_year + 1
@@ -185,7 +208,8 @@ modelapi <- function(case_study_id, session_id, run_collection_id, run_id) {
 
   infected_stack <- foreach::foreach(i = seq_len(10),
                                      .combine = c,
-                                     .packages = c("terra", "PoPS")) %do% {
+                                     .packages = c("terra", "PoPS", "stats")) %do% {
+    config$random_seed <- round(stats::runif(1, 1, 1000000))
     data <- PoPS::pops_model(random_seed = config$random_seed,
                              use_lethal_temperature =
                                config$use_lethal_temperature,
@@ -270,13 +294,13 @@ modelapi <- function(case_study_id, session_id, run_collection_id, run_id) {
           terra::rast(nrow = config$num_rows, ncol = config$num_cols,
                       xmin = config$xmin, xmax = config$xmax,
                       ymin = config$ymin, ymax = config$ymax, crs = config$crs)
-        values(comp_years) <- data$infected[[q]]
+        terra::values(comp_years) <- data$infected[[q]]
 
         susceptible_runs <-
           terra::rast(nrow = config$num_rows, ncol = config$num_cols,
                       xmin = config$xmin, xmax = config$xmax,
                       ymin = config$ymin, ymax = config$ymax, crs = config$crs)
-        values(susceptible_runs) <- data$susceptible[[q]]
+        terra::values(susceptible_runs) <- data$susceptible[[q]]
 
         for (p in seq_len(length(data$exposed[[q]]))) {
           if (p == 1) {
@@ -285,14 +309,14 @@ modelapi <- function(case_study_id, session_id, run_collection_id, run_id) {
                           xmin = config$xmin, xmax = config$xmax,
                           ymin = config$ymin, ymax = config$ymax,
                           crs = config$crs)
-            values(exposed_run) <- data$exposed[[q]][[p]]
+            terra::values(exposed_run) <- data$exposed[[q]][[p]]
           } else {
             exposed_year <-
               terra::rast(nrow = config$num_rows, ncol = config$num_cols,
                           xmin = config$xmin, xmax = config$xmax,
                           ymin = config$ymin, ymax = config$ymax,
                           crs = config$crs)
-            values(exposed_year) <- data$exposed[[q]][[p]]
+            terra::values(exposed_year) <- data$exposed[[q]][[p]]
             exposed_run <- c(exposed_run, exposed_year)
           }
           exposed_runs[[q]] <- exposed_run
@@ -303,13 +327,13 @@ modelapi <- function(case_study_id, session_id, run_collection_id, run_id) {
           terra::rast(nrow = config$num_rows, ncol = config$num_cols,
                       xmin = config$xmin, xmax = config$xmax,
                       ymin = config$ymin, ymax = config$ymax, crs = config$crs)
-        values(comp_year) <- data$infected[[q]]
+        terra::values(comp_year) <- data$infected[[q]]
 
         susceptible_run <-
           terra::rast(nrow = config$num_rows, ncol = config$num_cols,
                       xmin = config$xmin, xmax = config$xmax,
                       ymin = config$ymin, ymax = config$ymax, crs = config$crs)
-        values(susceptible_run) <- data$susceptible[[q]]
+        terra::values(susceptible_run) <- data$susceptible[[q]]
 
         comp_years <- c(comp_years, comp_year)
         susceptible_runs <- c(susceptible_runs, susceptible_run)
@@ -320,14 +344,14 @@ modelapi <- function(case_study_id, session_id, run_collection_id, run_id) {
                           xmin = config$xmin, xmax = config$xmax,
                           ymin = config$ymin, ymax = config$ymax,
                           crs = config$crs)
-            values(exposed_run) <- data$exposed[[q]][[p]]
+            terra::values(exposed_run) <- data$exposed[[q]][[p]]
           } else {
             exposed_year <-
               terra::rast(nrow = config$num_rows, ncol = config$num_cols,
                           xmin = config$xmin, xmax = config$xmax,
                           ymin = config$ymin, ymax = config$ymax,
                           crs = config$crs)
-            values(exposed_year) <- data$exposed[[q]][[p]]
+            terra::values(exposed_year) <- data$exposed[[q]][[p]]
             exposed_run <- c(exposed_run, exposed_year)
           }
           exposed_runs[[q]] <- exposed_run
@@ -435,6 +459,12 @@ modelapi <- function(case_study_id, session_id, run_collection_id, run_id) {
   north_rate <-
     round(sapply(north_rates, function(x) c("Mean" = mean(x, na.rm = TRUE),
                                             "Stand dev" = sd(x))), digits = 0)
+
+  west_rate[is.na(west_rate)] <- 0
+  east_rate[is.na(east_rate)] <- 0
+  south_rate[is.na(south_rate)] <- 0
+  north_rate[is.na(north_rate)] <- 0
+
   which_median <- function(x) raster::which.min(abs(x - median(x)))
 
   median_run_index <- which_median(infected_number[[1]])
@@ -495,22 +525,22 @@ modelapi <- function(case_study_id, session_id, run_collection_id, run_id) {
       if (is.nan(west_rates[median_run_index, q])) {
         west_rate_r <- 0
       } else {
-        west_rate_r <- west_rates[median_run_index, q]
+        west_rate_r <- round(west_rates[median_run_index, q], digits = 0)
       }
       if (is.nan(east_rates[median_run_index, q])) {
         east_rate_r <- 0
       } else {
-        east_rate_r <- east_rates[median_run_index, q]
+        east_rate_r <- round(east_rates[median_run_index, q], digits = 0)
       }
       if (is.nan(south_rates[median_run_index, q])) {
         south_rate_r <- 0
       } else {
-        south_rate_r <- south_rates[median_run_index, q]
+        south_rate_r <- round(south_rates[median_run_index, q], digits = 0)
       }
       if (is.nan(north_rates[median_run_index, q])) {
         north_rate_r <- 0
       } else {
-        north_rate_r <- north_rates[median_run_index, q]
+        north_rate_r <- round(north_rates[median_run_index, q], digits = 0)
       }
     } else if (q > 1) {
       number_infected <- number_infecteds[1, q]
@@ -556,38 +586,78 @@ modelapi <- function(case_study_id, session_id, run_collection_id, run_id) {
     single_map$mean <- simulation_mean_stack[[q]]
     single_map$standard_deviation <- simulation_sd_stack[[q]]
     single_map[single_map <= 0] <- NA
-
     if (terra::global(single_map, fun = "sum", na.rm = TRUE) == 0 ||
         is.na(terra::global(single_map, fun = "sum", na.rm = TRUE))) {
       single_map[infec > 0] <- 0
     }
-    single_map_p <- terra::as.polygons(single_map, digits = 4, dissolve = FALSE,
-                                       values = TRUE, na.rm = TRUE)
+    reso <- config$ew_res
+
+    if (terra::ncell(single_map) <= 1000) {
+      single_map_s <- st_as_stars(single_map)
+    } else if (terra::ncell(single_map) > 1000 &&
+               terra::ncell(single_map) <= 50000) {
+      single_map_b <- terra::aggregate(single_map, fact = 2, fun = "mean")
+      single_map_s <- st_as_stars(single_map_b)
+      reso <- reso * 2
+    } else if (terra::ncell(single_map) > 50000 &&
+               terra::ncell(single_map) <= 120000) {
+      single_map_b <- terra::aggregate(single_map, fact = 3, fun = "mean")
+      single_map_s <- st_as_stars(single_map_b)
+      reso <- reso * 3
+    } else if (terra::ncell(single_map) > 120000) {
+      single_map_b <- terra::aggregate(single_map, fact = 4, fun = "mean")
+      single_map_s <- st_as_stars(single_map_b)
+      reso <- reso * 4
+    }
+
+    st_crs(single_map_s) <- 3857
+    single_map_s <- st_transform(single_map_s, 4326)
+    single_map_p <- st_as_sf(single_map_s)
+    # single_map_p <- terra::as.polygons(single_map, dissolve = FALSE,
+                                       # values = TRUE, trunc = TRUE)
     storage.mode(single_map_p$median) <- "integer"
     storage.mode(single_map_p$max) <- "integer"
     storage.mode(single_map_p$probability) <- "integer"
     storage.mode(single_map_p$min) <- "integer"
     storage.mode(single_map_p$mean) <- "integer"
     storage.mode(single_map_p$standard_deviation) <- "integer"
+    if (length(single_map_p$min[is.na(single_map_p$min)])) {
+      single_map_p$min[is.na(single_map_p$min)] <- 0
+    }
+    if (length(single_map_p$mean[is.na(single_map_p$mean)])) {
+      single_map_p$mean[is.na(single_map_p$mean)] <- 0
+    }
+    if (length(single_map_p$max[is.na(single_map_p$max)])) {
+      single_map_p$max[is.na(single_map_p$max)] <- 0
+    }
+    if (length(single_map_p$median[is.na(single_map_p$median)])) {
+      single_map_p$median[is.na(single_map_p$median)] <- 0
+    }
+    if (length(single_map_p$probability[is.na(single_map_p$probability)])) {
+      single_map_p$probability[is.na(single_map_p$probability)] <- 0
+    }
+    if (length(single_map_p$standard_deviation[is.na(single_map_p$standard_deviation)])) {
+      single_map_p$standard_deviation[is.na(single_map_p$standard_deviation)] <- 0
+    }
+    # single_map_p <- terra::project(single_map_p, "epsg:4326")
+    # single_map_p <- as(single_map_p, "sf")
+    # single_map_p <- sf::st_as_sf(single_map_p)
+    single_map_p <- as(single_map_p, "Spatial")
 
-    setAs("SpatVector", "sf",
-          function(from) {
-            sf::st_as_sf(as.data.frame(from, geom = TRUE),
-                         wkt = "geometry", crs = crs(from))
-          }
-    )
-
-    st_as_sf.SpatVector <- function(x, ...) {
-      sf::st_as_sf(as.data.frame(x, geom = TRUE), wkt = "geometry",
-                   crs = crs(x))
+    if (reso <= 10) {
+      single_map_p <-
+        geojsonio::geojson_list(single_map_p, precision = 6, geometry = "polygon")
+    } else if (reso > 10 && reso <= 500) {
+      single_map_p <-
+        geojsonio::geojson_list(single_map_p, precision = 5, geometry = "polygon")
+    } else if (reso > 50 && reso <= 300) {
+      single_map_p <-
+        geojsonio::geojson_list(single_map_p, precision = 4, geometry = "polygon")
+    } else if (reso > 300) {
+      single_map_p <-
+        geojsonio::geojson_list(single_map_p, precision = 3, geometry = "polygon")
     }
 
-    single_map_p <- terra::project(single_map_p, "epsg:4326")
-    single_map_p <- as(single_map_p, "sf")
-    single_map_p <- sf::st_as_sf(single_map_p)
-
-    single_map_p <-
-      geojsonio::geojson_list(single_map_p, precision = 4, geometry = "polygon")
     class(single_map_p) <- "list"
 
     outs <- list()
@@ -631,6 +701,7 @@ modelapi <- function(case_study_id, session_id, run_collection_id, run_id) {
     } else {
       run2$status <- "FAILED"
     }
+    print(q)
     stuff <- run2$status
   }
 
