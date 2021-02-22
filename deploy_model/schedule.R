@@ -129,6 +129,8 @@ modelapi <- function(case_study_id, session_id, run_collection_id, run_id) {
     management_costs <- 0
     treatments2 <- vect(treatments)
     treatments2$efficacy <- treatments$efficacy
+    treatments2$date <- treatments$date
+    treatments2$duration <- treatments$duration
     for (i in seq_len(nrow(unique_treatments))) {
       current_treatments <-
         treatments2[treatments2$date == unique_treatments$date[i] &
@@ -138,6 +140,7 @@ modelapi <- function(case_study_id, session_id, run_collection_id, run_id) {
         terra::rasterize(current_treatments, host, touches = TRUE,
                                         fun = "last", cover = TRUE)
       treatment_map[is.na(treatment_map)] <- 0
+      treatment_map[treatment_map > 1] <- 1
       treatment_map <- treatment_map * as.numeric(unique_treatments$efficacy[i])
       treatment_map <- terra::as.matrix(treatment_map, wide = TRUE)
       management_cost <-
@@ -209,7 +212,7 @@ modelapi <- function(case_study_id, session_id, run_collection_id, run_id) {
 
   infected_stack <- foreach::foreach(i = seq_len(10),
                                      .combine = c,
-                                     .packages = c("terra", "PoPS", "stats")) %do% {
+                                     .packages = c("PoPS", "stats")) %dopar% {
     config$random_seed <- round(stats::runif(1, 1, 1000000))
     data <- PoPS::pops_model(random_seed = config$random_seed,
                              use_lethal_temperature =
@@ -288,88 +291,17 @@ modelapi <- function(case_study_id, session_id, run_collection_id, run_id) {
                                config$establishment_probability,
                              dispersal_percentage = config$dispersal_percentage)
 
-    exposed_runs <- c()
-    for (q in seq_len(length(data$infected))) {
-      if (q == 1) {
-        comp_years <-
-          terra::rast(nrow = config$num_rows, ncol = config$num_cols,
-                      xmin = config$xmin, xmax = config$xmax,
-                      ymin = config$ymin, ymax = config$ymax, crs = config$crs)
-        terra::values(comp_years) <- data$infected[[q]]
-
-        susceptible_runs <-
-          terra::rast(nrow = config$num_rows, ncol = config$num_cols,
-                      xmin = config$xmin, xmax = config$xmax,
-                      ymin = config$ymin, ymax = config$ymax, crs = config$crs)
-        terra::values(susceptible_runs) <- data$susceptible[[q]]
-
-        for (p in seq_len(length(data$exposed[[q]]))) {
-          if (p == 1) {
-            exposed_run <-
-              terra::rast(nrow = config$num_rows, ncol = config$num_cols,
-                          xmin = config$xmin, xmax = config$xmax,
-                          ymin = config$ymin, ymax = config$ymax,
-                          crs = config$crs)
-            terra::values(exposed_run) <- data$exposed[[q]][[p]]
-          } else {
-            exposed_year <-
-              terra::rast(nrow = config$num_rows, ncol = config$num_cols,
-                          xmin = config$xmin, xmax = config$xmax,
-                          ymin = config$ymin, ymax = config$ymax,
-                          crs = config$crs)
-            terra::values(exposed_year) <- data$exposed[[q]][[p]]
-            exposed_run <- c(exposed_run, exposed_year)
-          }
-          exposed_runs[[q]] <- exposed_run
-        }
-
-      } else {
-        comp_year <-
-          terra::rast(nrow = config$num_rows, ncol = config$num_cols,
-                      xmin = config$xmin, xmax = config$xmax,
-                      ymin = config$ymin, ymax = config$ymax, crs = config$crs)
-        terra::values(comp_year) <- data$infected[[q]]
-
-        susceptible_run <-
-          terra::rast(nrow = config$num_rows, ncol = config$num_cols,
-                      xmin = config$xmin, xmax = config$xmax,
-                      ymin = config$ymin, ymax = config$ymax, crs = config$crs)
-        terra::values(susceptible_run) <- data$susceptible[[q]]
-
-        comp_years <- c(comp_years, comp_year)
-        susceptible_runs <- c(susceptible_runs, susceptible_run)
-        for (p in seq_len(length(data$exposed[[q]]))) {
-          if (p == 1) {
-            exposed_run <-
-              terra::rast(nrow = config$num_rows, ncol = config$num_cols,
-                          xmin = config$xmin, xmax = config$xmax,
-                          ymin = config$ymin, ymax = config$ymax,
-                          crs = config$crs)
-            terra::values(exposed_run) <- data$exposed[[q]][[p]]
-          } else {
-            exposed_year <-
-              terra::rast(nrow = config$num_rows, ncol = config$num_cols,
-                          xmin = config$xmin, xmax = config$xmax,
-                          ymin = config$ymin, ymax = config$ymax,
-                          crs = config$crs)
-            terra::values(exposed_year) <- data$exposed[[q]][[p]]
-            exposed_run <- c(exposed_run, exposed_year)
-          }
-          exposed_runs[[q]] <- exposed_run
-        }
-      }
-    }
-
     number_infected <- data$number_infected
     spread_rate <- data$rates
     infected_area <- data$area_infected
-    single_run <- comp_years
-    comp_years <- terra::classify(comp_years, rclmat)
-    comp_years[is.na(comp_years)] <- 0
-    infected_stack <- comp_years
     quarantine_escape <- data$quarantine_escape
     quarantine_distance <- data$quarantine_escape_distance
     quarantine_direction <- data$quarantine_escape_directions
+
+    single_run <- data$infected
+    exposed_runs <- data$exposed
+    susceptible_runs <- data$susceptible
+    infected_stack <- data$infected
 
     runs <-
       list(single_run, infected_stack, number_infected, susceptible_runs,
@@ -393,25 +325,33 @@ modelapi <- function(case_study_id, session_id, run_collection_id, run_id) {
     infected_stack[seq(10, length(infected_stack), 10)]
 
   prediction <- probability_runs[[1]]
-  prediction[prediction > 0] <- 0
+  for(w in seq_len(length(prediction))) {
+    prediction[[w]] <- 0
+  }
   escape_probability <-
-    data.frame(t(rep(0, terra::nlyr(probability_runs[[1]]))))
-  infected_area <- data.frame(t(rep(0, terra::nlyr(probability_runs[[1]]))))
-  infected_number <- data.frame(t(rep(0, terra::nlyr(probability_runs[[1]]))))
-  west_rates <- data.frame(t(rep(0, terra::nlyr(probability_runs[[1]]))))
-  east_rates <- data.frame(t(rep(0, terra::nlyr(probability_runs[[1]]))))
-  south_rates <- data.frame(t(rep(0, terra::nlyr(probability_runs[[1]]))))
-  north_rates <- data.frame(t(rep(0, terra::nlyr(probability_runs[[1]]))))
-  max_values <- data.frame(t(rep(0, terra::nlyr(probability_runs[[1]]))))
+    data.frame(t(rep(0, length(probability_runs[[1]]))))
+  infected_area <- data.frame(t(rep(0, length(probability_runs[[1]]))))
+  infected_number <- data.frame(t(rep(0, length(probability_runs[[1]]))))
+  west_rates <- data.frame(t(rep(0, length(probability_runs[[1]]))))
+  east_rates <- data.frame(t(rep(0, length(probability_runs[[1]]))))
+  south_rates <- data.frame(t(rep(0, length(probability_runs[[1]]))))
+  north_rates <- data.frame(t(rep(0, length(probability_runs[[1]]))))
+  max_values <- data.frame(t(rep(0, length(probability_runs[[1]]))))
   quarantine_escapes <-
-    data.frame(t(rep(0, terra::nlyr(probability_runs[[1]]))))
+    data.frame(t(rep(0, length(probability_runs[[1]]))))
   quarantine_escape_distances <-
-    data.frame(t(rep(0, terra::nlyr(probability_runs[[1]]))))
+    data.frame(t(rep(0, length(probability_runs[[1]]))))
   quarantine_escape_directions <-
-    data.frame(t(rep(0, terra::nlyr(probability_runs[[1]]))))
+    data.frame(t(rep(0, length(probability_runs[[1]]))))
 
   for (p in seq_len(length(probability_runs))) {
-    prediction <- prediction + probability_runs[[p]]
+    for (w in seq_len(length(prediction))) {
+      prob <- probability_runs[[p]][[w]]
+      max_values[p, w] <- max(prob)
+      prob[prob <= 1] <- 0
+      prob[prob > 1] <- 1
+      prediction[[w]] <- prediction[[w]] + prob
+    }
     infected_number[p, ] <- number_infected_runs[[p]]
     infected_area[p, ] <- area_infected_runs[[p]]
     rates <- do.call(rbind, spread_rate_runs[[p]])
@@ -429,17 +369,19 @@ modelapi <- function(case_study_id, session_id, run_collection_id, run_id) {
 
     if (config$use_quarantine &
         length(quarantine_escape_runs[[p]]) ==
-        terra::nlyr(probability_runs[[p]])) {
+        length(probability_runs[[p]])) {
       escape_probability <- escape_probability + quarantine_escape_runs[[p]]
       quarantine_escapes[p, ] <- quarantine_escape_runs[[p]]
       quarantine_escape_distances <- quarantine_escape_distance_runs[[p]]
       quarantine_escape_directions <- quarantine_escape_directions_runs[[p]]
     }
 
-    max_values[p, ] <- max(terra::values(single_runs[[p]]))
   }
 
-  probability <- (prediction / (length(probability_runs))) * 100
+  probability <- prediction
+  for(w in seq_len(length(prediction))) {
+    probability[[w]] <- (prediction[[w]] / (length(probability_runs))) * 100
+  }
 
   infected_areas <-
     round(sapply(infected_area, function(x) c("Mean" = mean(x, na.rm = TRUE),
@@ -474,28 +416,37 @@ modelapi <- function(case_study_id, session_id, run_collection_id, run_id) {
   susceptible_run <- susceptible_runs[[median_run_index]]
   exposed_run <- exposed_runs[[median_run_index]]
 
-  for (q in seq_len(terra::nlyr(single_runs[[1]]))) {
+  for (q in seq_len(length(single_runs[[1]]))) {
     for (j in seq_len(length(single_runs))) {
       if (j == 1) {
-        raster_stacks <- single_runs[[j]][[q]]
+        raster_stacks <- list(single_runs[[j]][[q]])
       } else {
-        raster_stacks <- c(raster_stacks, single_runs[[j]][[q]])
+        raster_stacks[[j]] <- single_runs[[j]][[q]]
       }
     }
-    simulation_mean <- terra::app(raster_stacks, fun = mean)
-    simulation_sd <- terra::app(raster_stacks, fun = sd)
-    simulation_min <- terra::app(raster_stacks, fun = min)
-    simulation_max <- terra::app(raster_stacks, fun = max)
+    raster_stacks2 <- do.call(cbind, raster_stacks)
+    raster_stacks2 <- array(raster_stacks2, dim=c(dim(raster_stacks[[1]]), length(raster_stacks)))
+    simulation_mean <- round(apply(raster_stacks2, c(1, 2), mean, na.rm = TRUE), digits = 0)
+    simulation_min <- apply(raster_stacks2, c(1, 2), min, na.rm = TRUE)
+    simulation_max <- apply(raster_stacks2, c(1, 2), max, na.rm = TRUE)
+    simulation_sd <- apply(raster_stacks2, c(1, 2), sd, na.rm = TRUE)
+
+    simulation_stack <-
+      terra::rast(nrow = config$num_rows, ncol = config$num_cols,
+                  xmin = config$xmin, xmax = config$xmax,
+                  ymin = config$ymin, ymax = config$ymax, crs = config$crs)
+    terra::values(simulation_stack) <- simulation_mean
+    names(simulation_stack) <- 'mean'
+    simulation_stack$probability <- probability[[q]]
+    simulation_stack$max <- simulation_max
+    simulation_stack$min <- simulation_min
+    simulation_stack$standard_deviation <- simulation_sd
+    simulation_stack$median <- single_run[[q]]
+
     if (q == 1) {
-      simulation_mean_stack <- simulation_mean
-      simulation_sd_stack <- simulation_sd
-      simulation_min_stack <- simulation_min
-      simulation_max_stack <- simulation_max
+      simulation_stacks <- list(simulation_stack)
     } else {
-      simulation_mean_stack <- c(simulation_mean_stack, simulation_mean)
-      simulation_sd_stack <- c(simulation_sd_stack, simulation_sd)
-      simulation_min_stack <- c(simulation_min_stack, simulation_min)
-      simulation_max_stack <- c(simulation_max_stack, simulation_max)
+      simulation_stacks[[q]] <- simulation_stack
     }
   }
 
@@ -570,9 +521,9 @@ modelapi <- function(case_study_id, session_id, run_collection_id, run_id) {
 
     year <- years[q]
 
-    single_map <- single_run[[q]]
-    infec <- single_map
-    expos <- single_map
+    single_map <- simulation_stacks[[q]]
+    infec <- single_map$mean
+    expos <- single_map$mean
     values(expos) <- 0
     values(infec) <- 0
     values(infec) <- config$infected
@@ -580,12 +531,6 @@ modelapi <- function(case_study_id, session_id, run_collection_id, run_id) {
       values(expos) <- as.matrix(expos, wide = TRUE) + config$exposed[[m]]
     }
     values(infec) <- values(infec) + values(expos)
-    names(single_map) <- "median"
-    single_map$probability <- probability[[q]]
-    single_map$max <- simulation_max_stack[[q]]
-    single_map$min <- simulation_min_stack[[q]]
-    single_map$mean <- simulation_mean_stack[[q]]
-    single_map$standard_deviation <- simulation_sd_stack[[q]]
     single_map[single_map <= 0] <- NA
     if (terra::global(single_map, fun = "sum", na.rm = TRUE) == 0 ||
         is.na(terra::global(single_map, fun = "sum", na.rm = TRUE))) {
@@ -593,14 +538,14 @@ modelapi <- function(case_study_id, session_id, run_collection_id, run_id) {
     }
     reso <- config$ew_res
 
-    if (terra::ncell(single_map) <= 100000) {
-      single_map_s <- st_as_stars(single_map)
-    } else if (terra::ncell(single_map) > 100000) {
-      single_map_b <- terra::aggregate(single_map, fact = 3, fun = "mean")
-      single_map_s <- st_as_stars(single_map_b)
-      reso <- reso * 2
-    }
-
+    # if (terra::ncell(single_map) <= 100000) {
+    #   single_map_s <- st_as_stars(single_map)
+    # } else if (terra::ncell(single_map) > 100000) {
+    #   single_map_b <- terra::aggregate(single_map, fact = 2, fun = "mean")
+    #   single_map_s <- st_as_stars(single_map_b)
+    #   reso <- reso * 2
+    # }
+    single_map_s <- st_as_stars(single_map)
     st_crs(single_map_s) <- 3857
     single_map_s <- st_transform(single_map_s, 4326)
     single_map_p <- st_as_sf(single_map_s)
@@ -707,6 +652,7 @@ modelapi <- function(case_study_id, session_id, run_collection_id, run_id) {
   }
 
   if (run_collection$default == TRUE ||
+      is.null(run$steering_year) ||
       run$steering_year == lubridate::year(config$end_date)) {
     if (run2$status == "SUCCESS") {
       run_collection$status <- "SUCCESS"
@@ -721,16 +667,9 @@ modelapi <- function(case_study_id, session_id, run_collection_id, run_id) {
     }
   }
 
-  config$infected <- terra::as.matrix(single_run_out, wide = TRUE)
-  config$susceptible <- terra::as.matrix(susceptible_run_out, wide = TRUE)
-  exposed_run_outs <- list()
-  if (config$model_type == "SEI" & config$latency_period > 1) {
-    for (ex in seq_len(terra::nlyr(exposed_run_out))) {
-      exposed_run_outs[[ex]] <-
-        terra::as.matrix(exposed_run_out[[ex]], wide = TRUE)
-    }
-    config$exposed <- exposed_run_outs
-  }
+  config$infected <- single_run_out
+  config$susceptible <- susceptible_run_out
+  config$exposed <- exposed_run_out
 
   ## write out config to run api
   save(config, file = "current_run.RData")
