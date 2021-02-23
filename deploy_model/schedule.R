@@ -411,11 +411,16 @@ modelapi <- function(case_study_id, session_id, run_collection_id, run_id) {
 
   which_median <- function(x) raster::which.min(abs(x - median(x)))
 
-  median_run_index <- which_median(infected_number[[1]])
+  median_run_index <- which_median(infected_number[[3]])
+  min_run_index <- which.min(infected_number[[3]])
+  max_run_index <- which.max(infected_number[[3]])
 
   single_run <- single_runs[[median_run_index]]
   susceptible_run <- susceptible_runs[[median_run_index]]
   exposed_run <- exposed_runs[[median_run_index]]
+
+  min_run <- single_runs[[min_run_index]]
+  max_run <- single_runs[[max_run_index]]
 
   for (q in seq_len(length(single_runs[[1]]))) {
     for (j in seq_len(length(single_runs))) {
@@ -428,8 +433,8 @@ modelapi <- function(case_study_id, session_id, run_collection_id, run_id) {
     raster_stacks2 <- do.call(cbind, raster_stacks)
     raster_stacks2 <- array(raster_stacks2, dim=c(dim(raster_stacks[[1]]), length(raster_stacks)))
     simulation_mean <- round(apply(raster_stacks2, c(1, 2), mean, na.rm = TRUE), digits = 0)
-    simulation_min <- apply(raster_stacks2, c(1, 2), min, na.rm = TRUE)
-    simulation_max <- apply(raster_stacks2, c(1, 2), max, na.rm = TRUE)
+    # simulation_min <- apply(raster_stacks2, c(1, 2), min, na.rm = TRUE)
+    # simulation_max <- apply(raster_stacks2, c(1, 2), max, na.rm = TRUE)
     simulation_sd <- apply(raster_stacks2, c(1, 2), sd, na.rm = TRUE)
 
     simulation_stack <-
@@ -439,8 +444,8 @@ modelapi <- function(case_study_id, session_id, run_collection_id, run_id) {
     terra::values(simulation_stack) <- simulation_mean
     names(simulation_stack) <- 'mean'
     simulation_stack$probability <- probability[[q]]
-    simulation_stack$max <- simulation_max
-    simulation_stack$min <- simulation_min
+    simulation_stack$max <- max_run[[q]]
+    simulation_stack$min <- min_run[[q]]
     simulation_stack$standard_deviation <- simulation_sd
     simulation_stack$median <- single_run[[q]]
 
