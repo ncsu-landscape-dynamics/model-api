@@ -77,6 +77,7 @@ RUN install2.r --error --skipinstalled \
     sf \
     sp \
     terra \
+    geojsonsf \
     usethis
 
 RUN R -e "install.packages(c('stars'), repos = 'http://cran.us.r-project.org')"
