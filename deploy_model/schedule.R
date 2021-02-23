@@ -1,11 +1,11 @@
 library(PoPS)
 library(httr)
-library(geojsonio)
-library(protolite)
-library(geojson)
+# library(geojsonio)
+# library(protolite)
+# library(geojson)
 library(rgdal)
 library(raster)
-library(jsonlite)
+# library(jsonlite)
 library(sp)
 library(devtools)
 library(doParallel)
@@ -16,6 +16,7 @@ library(sf)
 library(terra)
 library(plumber)
 library(stars)
+library(geojsonsf)
 
 #' Return the status of a model call
 #'
@@ -578,30 +579,36 @@ modelapi <- function(case_study_id, session_id, run_collection_id, run_id) {
     # single_map_p <- terra::project(single_map_p, "epsg:4326")
     # single_map_p <- as(single_map_p, "sf")
     # single_map_p <- sf::st_as_sf(single_map_p)
-    single_map_p <- as(single_map_p, "Spatial")
+
+    # single_map_p <- as(single_map_p, "Spatial")
 
     if (reso <= 10) {
       single_map_p <-
-        geojsonio::geojson_list(single_map_p, precision = 6, geometry = "polygon")
+        # geojsonio::geojson_list(single_map_p, precision = 6, geometry = "polygon")
+        sf_geojson(single_map_p, digits = 6, simplify = FALSE)
     } else if (reso > 10 && reso <= 100) {
       single_map_p <-
-        geojsonio::geojson_list(single_map_p, precision = 5, geometry = "polygon")
+        # geojsonio::geojson_list(single_map_p, precision = 5, geometry = "polygon")
+        sf_geojson(single_map_p, digits = 5, simplify = FALSE)
     } else if (reso > 100 && reso <= 500) {
       single_map_p <-
-        geojsonio::geojson_list(single_map_p, precision = 4, geometry = "polygon")
+        # geojsonio::geojson_list(single_map_p, precision = 4, geometry = "polygon")
+        sf_geojson(single_map_p, digits = 4, simplify = FALSE)
     } else if (reso > 500) {
       single_map_p <-
-        geojsonio::geojson_list(single_map_p, precision = 3, geometry = "polygon")
+        # geojsonio::geojson_list(single_map_p, precision = 3, geometry = "polygon")
+        sf_geojson(single_map_p, digits = 3, simplify = FALSE)
+      # single_map_p3  <- geojsonio::geojson_list(single_map_p, precision = 3, geometry = "polygon")
     }
 
-    class(single_map_p) <- "list"
+    # class(single_map_p) <- "list"
 
     outs <- list()
     outs$run <- run_id
     outs$number_infected <- number_infected
     outs$infected_area <- round(area_infected, digits = 2)
     outs$year <- year
-    outs$median_spread_map <- single_map_p
+    outs$median_spread_map <- NULL
     outs$probability_map <- NULL
     outs$max_spread_map <- NULL
     outs$min_spread_map <- NULL
@@ -634,9 +641,14 @@ modelapi <- function(case_study_id, session_id, run_collection_id, run_id) {
 
     if (post_code$status_code == 201) {
       run2$status <- "SUCCESS"
+      output_id <- httr::content(post_code)
+      output_id <- output_id$pk
+      s <- httr::PUT(url = paste(api_url, "output_spread_map/", output_id, "/", sep = ""),
+                     body = list(median_spread_map = single_map_p))
     } else {
       run2$status <- "FAILED"
     }
+
     print(q)
     stuff <- run2$status
   }
@@ -663,7 +675,7 @@ modelapi <- function(case_study_id, session_id, run_collection_id, run_id) {
       run_collection$status <- "FAILED"
       httr::PUT(url = paste(api_url, "run_collection_write/",
                             run_collection_id, "/", sep = ""),
-                body = run_collection, encode = "json")
+                body = run_collection, encode = "multipart")
     }
   }
 
