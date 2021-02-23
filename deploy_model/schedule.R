@@ -411,9 +411,9 @@ modelapi <- function(case_study_id, session_id, run_collection_id, run_id) {
 
   which_median <- function(x) raster::which.min(abs(x - median(x)))
 
-  median_run_index <- which_median(infected_number[[3]])
-  min_run_index <- which.min(infected_number[[3]])
-  max_run_index <- which.max(infected_number[[3]])
+  median_run_index <- which_median(infected_number[[ncol(infected_number)]])
+  min_run_index <- which.min(infected_number[[ncol(infected_number)]])
+  max_run_index <- which.max(infected_number[[ncol(infected_number)]])
 
   single_run <- single_runs[[median_run_index]]
   susceptible_run <- susceptible_runs[[median_run_index]]
