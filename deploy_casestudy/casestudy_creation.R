@@ -1,4 +1,6 @@
-# devtools::install_github("ncsu-landscape-dynamics/rpops")
+devtools::install_github("ncsu-landscape-dynamics/rpops", ref = "b12e865c490db7cf955767ed9ced1a1f7ba6b2d8")
+# devtools::install_github("ncsu-landscape-dynamics/rpops", ref = "1.1.0")
+# devtools::install_github("rspatial/terra", ref = "9175b5b3d7abb57300207785358e0266d0436e19")
 library(readr)
 library(PoPS)
 library(httr)

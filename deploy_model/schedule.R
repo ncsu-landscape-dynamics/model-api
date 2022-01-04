@@ -376,7 +376,6 @@ modelapi <- function(case_study_id, session_id, run_collection_id, run_id) {
       quarantine_escape_distances <- quarantine_escape_distance_runs[[p]]
       quarantine_escape_directions <- quarantine_escape_directions_runs[[p]]
     }
-
   }
 
   probability <- prediction
@@ -552,7 +551,7 @@ modelapi <- function(case_study_id, session_id, run_collection_id, run_id) {
     #   reso <- reso * 2
     # }
     single_map_s <- st_as_stars(single_map)
-    st_crs(single_map_s) <- 3857
+    # st_crs(single_map_s) <- 3857
     single_map_s <- st_transform(single_map_s, 4326)
     single_map_p <- st_as_sf(single_map_s)
     # single_map_p <- terra::as.polygons(single_map, dissolve = FALSE,

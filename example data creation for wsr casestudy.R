@@ -97,15 +97,15 @@ th <- matrix(infected, ncol = terra::ncol(infected), nrow = terra::nrow(infected
 
 terra::writeRaster(infected, ffOut("infected.tif"))
 
-setAs("SpatVector", "sf",
-      function(from) {
-        sf::st_as_sf(as.data.frame(from, geom=TRUE), wkt="geometry", crs=crs(from))
-      }
-)
-
-st_as_sf.SpatVector <- function(x, ...) {
-  sf::st_as_sf(as.data.frame(x, geom=TRUE), wkt="geometry", crs=crs(x))
-}
+# setAs("SpatVector", "sf",
+#       function(from) {
+#         sf::st_as_sf(as.data.frame(from, geom=TRUE), wkt="geometry", crs=crs(from))
+#       }
+# )
+#
+# st_as_sf.SpatVector <- function(x, ...) {
+#   sf::st_as_sf(as.data.frame(x, geom=TRUE), wkt="geometry", crs=crs(x))
+# }
 
 total_hosts_p <- terra::as.polygons(total_hosts, dissolve = TRUE)
 total_hosts_p <- terra::project(total_hosts_p, "epsg:4326")
@@ -171,3 +171,35 @@ geojsonio::geojson_write(trucking_g, file = ffOut("trucking.geojson"))
 folderfun::setff("In", "H:/Shared drives/Data/Vector/USA/")
 rails <- st_read(ffIn("railroads_US.gpkg"))
 st_write(rails, ffIn("railroads_US.shp"))
+
+
+
+folderfun::setff("In", "F:/Shared drives/APHIS  Projects/PoPS/Case Studies/sudden_oak_death/Oregon/Most Recent SOD Data 5.17.2021/")
+total_hosts <- rast(ffIn("hosts_2020.tif"))
+rcl <- c(-100, 0, NA, 1, 20, 20, 20, 40, 40, 40, 60, 60, 60, 80, 80, 80, 100, 100)
+rclmat <- matrix(rcl, ncol = 3, byrow = TRUE)
+total_hosts <- terra::classify(total_hosts, rclmat)
+names(total_hosts) <- "outputs"
+total_hosts <- terra::aggregate(total_hosts, 2)
+total_hosts_p <- terra::as.polygons(total_hosts, dissolve = TRUE)
+total_hosts_p <- terra::project(total_hosts_p, "epsg:4326")
+total_hosts_ps <- sf::st_as_sf(total_hosts_p)
+
+tanoak_g <-
+  geojsonio::geojson_list(total_hosts_ps, precision = 4, geometry = "polygon")
+geojsonio::geojson_write(tanoak_g, file = ffIn("tanoak3.geojson"), precision = 3)
+
+
+inf_2020 <- rast(ffIn("end_inf_2020eu.tif"))
+inf_2020 <- classify(inf_2020, matrix(c(0, NA), ncol = 2, byrow = TRUE), right = NA)
+names(inf_2020) <- "outputs"
+inf_2020_p <- terra::as.polygons(inf_2020, dissolve = TRUE)
+inf_2020_p <- terra::project(inf_2020_p, "epsg:4326")
+inf_2020_ps <- sf::st_as_sf(inf_2020_p)
+
+
+inf_g <-
+  geojsonio::geojson_list(inf_2020_ps, precision = 5, geometry = "polygon")
+geojsonio::geojson_write(inf_g, file = ffIn("inf_2020.geojson"), precision = 5)
+sum(values(inf_2020), na.rm = TRUE)
+sum(values(inf_2020) > 0, na.rm = TRUE) * res(inf_2020)[1]^2
