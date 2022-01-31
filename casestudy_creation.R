@@ -20,7 +20,6 @@ library(devtools)
 library(doParallel)
 library(foreach)
 library(parallel)
-# library(flyio)
 
 ## 2 is SLF, 3 is SOD EU1, 5 is SOD NA1
 
@@ -28,6 +27,8 @@ case_studey_setup <- function(case_study_id) {
   
   case_study_id <- as.numeric(case_study_id)
   json_case_study <- httr::GET(paste("https://popsmodel.org/api/case_study/", case_study_id ,"/?format=json", sep = ""))
+  # json_case_study <- httr::GET(paste("http://127.0.0.1:8000/api/case_study/", case_study_id ,"/?format=json", sep = ""))
+  
   case_study <- httr::content(json_case_study)
   
   temp <- case_study$weather$temp_on
