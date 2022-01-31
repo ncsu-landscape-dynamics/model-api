@@ -54,7 +54,7 @@ storage.mode(slf2018_p$outputs) <- "integer"
 geojsonio::geojson_write(slf2018_p, convert_wgs84 = TRUE, geometry = "polygon", precision = 4, file = "C:/Users/Chris/Desktop/Geojson SLF data/slf_2018.geojson")
 
 ## host for SLF case study
-tree_of_heaven <- raster("H:/Shared drives/APHIS  Projects/PoPS/Case Studies/spotted_latternfly/slf_6_state_region_psuedo_mercator/tree_of_heaven_0.50.tif")
+tree_of_heaven <- raster("H:/Shared drives/Data/Raster/Regional/SLF_100m/tree_of_heaven_100m.tif")
 tree_of_heaven[tree_of_heaven == 0] <- NA
 tree_of_heaven <- as.integer(tree_of_heaven)
 rcl <- c(1, 10, 10, 11, 20, 20, 21, 30, 30, 31, 40, 40, 41, 50, 50, 51, 60, 60, 61, 70, 70, 71, 80, 80, 81, 90, 90, 91, 100, 100)
@@ -64,10 +64,10 @@ tree_of_heaven <- raster::reclassify(tree_of_heaven, rclmat)
 names(tree_of_heaven) <- "outputs"
 tree_of_heaven_p <- raster::rasterToPolygons(tree_of_heaven, n = 4, digits = 0, dissolve = T, na.rm = TRUE)
 storage.mode(tree_of_heaven_p$outputs) <- "integer"
-geojsonio::geojson_write(tree_of_heaven_p, convert_wgs84 = TRUE, geometry = "polygon", precision = 3, file = "C:/Users/Chris/Desktop/Geojson SLF data/tree_of_heaven.geojson")
+geojsonio::geojson_write(tree_of_heaven_p, convert_wgs84 = TRUE, geometry = "polygon", precision = 3, file = "H:/Shared drives/Data/Raster/Regional/SLF_100m/tree_of_heaven.geojson")
 
 ## host for SOD EU1 case study
-tanoak <- raster("H:/Shared drives/APHIS  Projects/PoPS/Case Studies/sudden_oak_death/Oregon/LEMMA Data Curry County/lide_300m_median_2018.tif")
+tanoak <- raster("H:\Shared drives\Data\Raster\Regional\SLF_100m/")
 tanoak[tanoak == 0] <- NA
 tanoak <- as.integer(tanoak)
 rcl <- c(1, 10, 10, 11, 20, 20, 21, 30, 30, 31, 40, 40, 41, 50, 50, 51, 60, 60, 61, 70, 70, 71, 80, 80, 81, 90, 90, 91, 100, 100)
