@@ -1,11 +1,9 @@
-FROM rocker/r-ver:4.0.2
-Maintainer "Chris" cmjone25@ncsu.edu
+FROM rocker/verse:4.1.1
+Label maintainer="Chris Jones <cmjone25@ncsu.edu>"
 
-RUN apt-get -y update \
+RUN apt-get update -qq \
   && apt-get install -y --no-install-recommends \
-    git-core \
-    libcurl4-gnutls-dev \
-    curl \
+    gdal-bin \
     lbzip2 \
     libfftw3-dev \
     libgdal-dev \
@@ -16,7 +14,6 @@ RUN apt-get -y update \
     libhdf4-alt-dev \
     libhdf5-dev \
     libjq-dev \
-    liblwgeom-dev \
     libpq-dev \
     libproj-dev \
     libprotobuf-dev \
@@ -24,62 +21,35 @@ RUN apt-get -y update \
     libsqlite3-dev \
     libssl-dev \
     libudunits2-dev \
+    lsb-release \
     netcdf-bin \
     postgis \
     protobuf-compiler \
     sqlite3 \
     tk-dev \
+    unixodbc-dev \
+    git-core \
+    libcurl4-gnutls-dev \
+    curl \
     libsodium-dev \
-    libxml2-dev \
-    unixodbc-dev
-    
-RUN install2.r --error \
-    RColorBrewer \
-    RandomFields \
-    RNetCDF \
-    classInt \
-    deldir \
-    gstat \
-    hdf5r \
-    lidR \
-    mapdata \
-    maptools \
-    mapview \
-    ncdf4 \
-    proj4 \
-    raster \
-    rgdal \
-    rgeos \
-    rlas \
-    sf \
-    sp \
-    spacetime \
-    spatstat \
-    spdep \
-    geoR \
-    geosphere \
-    aws.s3 \
-    devtools \
-    doParallel \
-    foreach \
-    geojson \
-    geojsonio \
-    httr \
-    iterators \
-    jsonlite \
-    plumber \
-    protolite \
-    raster \
-    remotes \
-    rgdal \
-    sf \
-    sp \
-    terra \
-    usethis 
+    libxml2-dev
 
-RUN ["installGithub.r", "ncsu-landscape-dynamics/rpops@b12e865c490db7cf955767ed9ced1a1f7ba6b2d8"]
-WORKDIR /payload/
-COPY ["./", "./"]
-EXPOSE 8080
-ENTRYPOINT ["R", "-e", "pr <- plumber::plumb(commandArgs()[4]); pr$run(host='0.0.0.0', port=8080)"]
-CMD ["schedule.R"]
+
+## Instal R packages
+RUN R -e "install.packages('remotes', repos = c(CRAN = 'https://cloud.r-project.org'))"
+RUN R -e "remotes::install_github('rstudio/renv')"
+
+WORKDIR /pops-model_api
+COPY renv.lock renv.lock
+COPY env env
+COPY main.R main.R
+COPY schedule.R schedule.R
+ENV RENV_PATHS_LIBRARY renv/library
+
+RUN R -e "renv::restore()"
+
+## open port 8079 to traffic
+EXPOSE 8079
+
+# when the container starts, start the main.R script
+ENTRYPOINT ["Rscript", "main.R"]

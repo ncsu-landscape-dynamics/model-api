@@ -1,4 +1,4 @@
-FROM rocker/verse:4.0.2
+FROM rocker/verse:4.1.1
 Label maintainer="Chris Jones <cmjone25@ncsu.edu>"
 
 RUN apt-get update -qq \
