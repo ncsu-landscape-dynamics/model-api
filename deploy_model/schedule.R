@@ -473,9 +473,10 @@ modelapi <- function(case_study_id, session_id, run_collection_id, run_id) {
   susceptible_run_out <- susceptible_run[[1]]
   exposed_run_out <- exposed_run[[1]]
 
-  stuff <-
-    foreach::foreach(q = seq_len(length(years)),
-                     .packages = c("terra", "geojsonio", "httr")) %do% {
+  # stuff <-
+    for(q in 1:length(years)) {
+    # foreach::foreach(q = seq_len(length(years)),
+    #                  .packages = c("terra", "geojsonio", "httr")) %do% {
     if (q == 1) {
       number_infected <- infected_number[median_run_index, q]
       area_infected <- infected_area[median_run_index, q]
@@ -657,7 +658,8 @@ modelapi <- function(case_study_id, session_id, run_collection_id, run_id) {
     stuff <- run2$status
   }
 
-  run2$status <- stuff[[1]]
+  # run2$status <- stuff[[1]]
+  run2$status <- stuff
 
   if (run2$status == "SUCCESS") {
     httr::PUT(url = paste(api_url, "run_write/", run_id, "/", sep = ""),
